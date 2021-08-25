@@ -1,0 +1,20 @@
+{
+    "tasks": [
+        {
+            "label": "zig-build",
+            "type": "shell",
+            "command": "zig build -Drelease-fast",
+            "problemMatcher": [
+                "$gcc"
+            ],
+        },
+        {
+            "label": "zig-build-debug",
+            "type": "shell",
+            "command": "zig build",
+            "problemMatcher": [
+                "$gcc"
+            ],
+        }
+    ]
+}
