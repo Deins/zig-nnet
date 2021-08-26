@@ -77,6 +77,11 @@ pub const style = struct {
         pub const magenta = code.ESC++"[" ++ code.fg_color.magenta ++ "m";
         pub const cyan    = code.ESC++"[" ++ code.fg_color.cyan ++ "m";
         pub const white   = code.ESC++"[" ++ code.fg_color.white ++ "m";
+
+        // 256 color code
+        pub fn col256(comptime col : u8) []const u8 {
+            return std.fmt.comptimePrint(code.ESC ++ "[38;5;" ++ "{}m", .{col});
+        }
     };
     // background color
     pub const bg = struct {
@@ -89,6 +94,10 @@ pub const style = struct {
         pub const magenta = code.ESC++"[" ++ code.bg_color.magenta ++ "m";
         pub const cyan    = code.ESC++"[" ++ code.bg_color.cyan ++ "m";
         pub const white   = code.ESC++"[" ++ code.bg_color.white ++ "m";
+        // 256 color code
+        pub fn col256(comptime col : u8) []const u8 {
+            return std.fmt.comptimePrint(code.ESC ++ "[48;5;" ++ "{}m", .{col});
+        }
     };
 };
 

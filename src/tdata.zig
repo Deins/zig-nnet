@@ -127,7 +127,9 @@ pub fn forData(comptime Float: type, comptime input_len: usize, comptime output_
                     //debug.print("Loading image `{s}`\n", .{path});
 
                     // read whole file
-                    const file = try std.fs.cwd().openFile(path, .{});
+                    const file = std.fs.cwd().openFile(path, .{}) catch |err| {
+                        std.debug.panic("Error opening image `{s}`: {}", .{path, err});
+                    };
                     defer file.close();
                     const buffer = try self.alloc.alloc(u8, try file.getEndPos());
                     defer self.alloc.free(buffer);

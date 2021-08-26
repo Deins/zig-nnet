@@ -9,11 +9,12 @@ const fmtDuration = std.fmt.fmtDuration;
 const bin_file = @import("bin_file.zig");
 
 const Float = f32;
-const ansi = @import("ansi_esc.zig");
+
 const tdata = @import("tdata.zig").forData(f32, 28 * 28, 10);
 const TrainingData = tdata.TrainingData;
 const TestCase = tdata.TestCase;
 const nnet = @import("nnet.zig").typed(Float);
+const LogCtx = @import("log.zig");
 
 const Options = struct {
     workers: usize = 0,
@@ -25,81 +26,12 @@ const Options = struct {
 };
 var options: Options = .{};
 
-const rlog = std.log.scoped(.raw);
+const rlog = LogCtx.scoped(.raw);
+const mlog = LogCtx.scoped(.main);
 
-const LogCtx = struct {
-    const Self = @This();
-    const buff_size = 1024;
-    out_mut: std.Thread.Mutex = .{},
-    out: std.io.BufferedWriter(buff_size, std.fs.File.Writer),
-    err_mut: std.Thread.Mutex = .{},
-    err: std.io.BufferedWriter(buff_size, std.fs.File.Writer),
-
-    pub fn init() Self {
-        return .{
-            .out = .{ .unbuffered_writer = std.io.getStdOut().writer() },
-            .err = .{ .unbuffered_writer = std.io.getStdErr().writer() },
-        };
-    }
-
-    pub fn configure_console() void {
-        if (std.builtin.os.tag == .windows) {
-            // configure windows console - use utf8 and ascii VT100 escape sequences
-            const win_con = struct {
-                usingnamespace std.os.windows;
-                const CP_UTF8: u32 = 65001;
-                const ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004;
-                //const STD_INPUT_HANDLE: (DWORD) = -10;
-                //const STD_OUTPUT_HANDLE: (DWORD) = -11;
-                //const STD_ERROR_HANDLE: (DWORD) = -12;
-                pub extern "kernel32" fn SetConsoleOutputCP(wCodePageID: std.os.windows.UINT) BOOL;
-                pub extern "kernel32" fn SetConsoleMode(hConsoleHandle: HANDLE, dwMode: DWORD) BOOL;
-                pub fn configure() void {
-                    if (SetConsoleOutputCP(CP_UTF8) == 0) {
-                        debug.warn("Can't configure windows console to UTF8!", .{});
-                    }
-                    //if (GetStdHandle(STD_ERROR_HANDLE)) |h| {
-                    //    _ = SetConsoleMode(h, ENABLE_VIRTUAL_TERMINAL_PROCESSING);
-                    //} else |err| std.log.alert("Windows can't configure console: {}", .{err});
-                    //if (GetStdHandle(STD_OUTPUT_HANDLE)) |h| {
-                    //    _ = SetConsoleMode(h, ENABLE_VIRTUAL_TERMINAL_PROCESSING);
-                    //} else |err| std.log.alert("Windows can't configure console: {}", .{err});
-                }
-            };
-            _ = win_con;
-            win_con.configure();
-        }
-    }
-};
-var log_ctx: LogCtx = undefined;
-
-pub const log_level: std.log.Level = std.log.Level.info;
-pub fn log(
-    comptime level: std.log.Level,
-    comptime scope: @TypeOf(.EnumLiteral),
-    comptime format: []const u8,
-    args: anytype,
-) void {
-    if (@enumToInt(level) > @enumToInt(log_level)) return;
-    //const use_err = @enumToInt(level) > @enumToInt(std.log.Level.warn);
-    const use_err = false;
-    const flush = if (use_err) log_ctx.out.flush else log_ctx.err.flush;
-    var out = if (use_err) log_ctx.out.writer() else log_ctx.err.writer();
-    const outm = if (use_err) &log_ctx.out_mut else &log_ctx.err_mut;
-    if (scope == .raw) {
-        const lock = outm.acquire();
-        out.print(format, args) catch @panic("Can't write log!");
-        lock.release();
-        return;
-    }
-
-    const scope_prefix = "(" ++ @tagName(scope) ++ "): ";
-    const prefix = "[" ++ @tagName(level) ++ "] " ++ scope_prefix;
-    const lock = outm.acquire();
-    out.print(prefix ++ format ++ "\n", args) catch @panic("Can't write log!");
-    if (@enumToInt(level) <= @enumToInt(std.log.Level.notice)) flush() catch @panic("Can't flush log!");
-    lock.release();
-}
+// setup logging system
+pub const log_level = LogCtx.log_level;
+pub const log = LogCtx.log;
 
 const NNet = struct {
     const Self = @This();
@@ -183,8 +115,6 @@ const NNet = struct {
     //  variables that contain index, its from 0 .., where 0 = input layer, and 1 is first hidden layer etc.
 
     // Neurons:
-    // input
-    i: @Vector(sizes[0], Float) = undefined,
     // hidden layers
     h1: @Vector(sizes[1], Float) = undefined,
     h2: @Vector(sizes[2], Float) = undefined,
@@ -214,17 +144,21 @@ const NNet = struct {
         self.bo = @splat(@typeInfo(@TypeOf(self.bo)).Vector.len, @as(Float, 0));
     }
 
-    // train to get derivatives
-    pub fn trainDeriv(self: *Self, test_case: TestCase, train_result: *TrainResult) void {
+    pub fn feedForward(self: *Self, input: *const @Vector(sizes[0], Float)) void {
         @setFloatMode(std.builtin.FloatMode.Optimized);
-        //var timer = try std.time.Timer.start();
-        debug.assert(std.mem.len(test_case.input) == std.mem.len(self.i));
-        self.i = test_case.input;
-        self.h1 = self.i;
+        self.h1 = input.*;
         // nnet.forward(self.i, self.w0, Self.a1, self.b1, void, &self.h1);
         nnet.forward(self.h1, self.w1, Self.a2, self.b2, void, &self.h2);
         nnet.forward(self.h2, self.w2, Self.a3, self.bo, void, &self.out_activated);
         nnet.assertFinite(self.out_activated, "out_activated");
+    }
+
+    // train to get derivatives
+    pub fn trainDeriv(self: *Self, test_case: TestCase, train_result: *TrainResult) void {
+        @setFloatMode(std.builtin.FloatMode.Optimized);
+        //var timer = try std.time.Timer.start();
+        debug.assert(std.mem.len(test_case.input) == sizes[0]);
+        self.feedForward(&test_case.input);
 
         const predicted_confidence: Float = @reduce(.Max, self.out_activated);
         var answer_vector = test_case.answer;
@@ -320,8 +254,7 @@ const NNet = struct {
                 }
             }
         }
-
-        // std.log.info("Test (Thread #{}) finished in {}. err: {}\n", .{ std.Thread.getCurrentId(), fmtDuration(timer.lap()), dataset_err });
+        // std.log.info("Test (Thread #{}) iteration finished in {}. err: {}\n", .{ std.Thread.getCurrentId(), fmtDuration(timer.lap()), dataset_err });
     }
 
     pub fn learn(self: *Self, train_results: TrainResult, learn_rate: Float) void {
@@ -335,12 +268,57 @@ const NNet = struct {
     }
 };
 
-// const TrainData = struct {
-//     inputs = []*[img_width * img_height]Float,
-//     input_names: [][]u8,
-//     batch_size : usize = 64, // 0 = all data (gradient descent, 1 = Stochastic, 2... = MiniBatch
-//     shuffle : ?std.rand.Random // when set option is set - shuffles before each batch
-// };
+pub fn doTest(alloc: *mem.Allocator) !void {
+    var net: NNet = undefined;
+    if (options.load) |p| {
+        var in_file = std.fs.cwd().openFile(p, .{}) catch |err| debug.panic("Can't open nnet: '{s}' Error:{}", .{ p, err });
+        defer in_file.close();
+        bin_file.readFile(NNet, &net, &in_file) catch |err| debug.panic("Can't open nnet: '{s}' Error:{}", .{ p, err });
+    } else std.debug.panic("Can't test, network not specified! Use '--load' to specify network!", .{});
+
+    var td = TrainingData.init(alloc);
+    var dir: std.fs.Dir = std.fs.cwd();
+    dir = try dir.openDir("data", .{});
+    dir = try dir.openDir("digits", .{});
+    dir = try dir.openDir("Images", .{});
+    dir = try dir.openDir("test", .{ .iterate = true });
+    var it = dir.iterate();
+    while (try it.next()) |entry| {
+        if (entry.kind != .File) mlog.warn("Skipping `{s}` - not a file!", .{entry.name});
+        const name_ptr = try td.image_names.addOne();
+        name_ptr.* = try alloc.dupe(u8, entry.name);
+        try td.answers.append(0);
+    }
+    mlog.info("Test set has {} entries, loading images...", .{td.answers.items.len});
+    try td.loadImages("./data/digits/Images/test/");
+
+    { // iterate and test
+        var of = try std.fs.cwd().createFile("res.csv", .{});
+        defer of.close();
+        const writer = of.writer();
+        try writer.print("filename,label\n", .{});
+
+        var i: usize = 0;
+        const len = td.image_names.items.len;
+
+        while (i < len) : (i += 1) {
+            const test_case = td.accessor.getTest(i);
+            _ = net.feedForward(&test_case.input);
+            var best : u8 = 0;
+            var best_confidence : Float = 0;
+            var ti : usize = 0;
+            while (ti < 10) : (ti+=1) {
+                if (best_confidence < net.out_activated[ti]) {
+                    best = @intCast(u8, ti);
+                    best_confidence = net.out_activated[ti];
+                }
+            }
+
+            try of.writer().print("{s},{}\n", .{test_case.name, best} );
+            mlog.info("{s} , {} , {d:.1}%\t[{d:.2}]", .{test_case.name, best, best_confidence*100.0, net.out_activated * @splat(10, @as(Float, 100))} );
+        }
+    }
+}
 
 pub fn train(alloc: *mem.Allocator) !void {
     var td = TrainingData.init(alloc);
@@ -353,6 +331,7 @@ pub fn train(alloc: *mem.Allocator) !void {
     trainer.workers = options.workers;
     trainer.learn_rate = options.learn_rate;
 
+    // load or initialise new net
     var net: NNet = undefined;
     if (options.load) |p| {
         var in_file = std.fs.cwd().openFile(p, .{}) catch |err| debug.panic("Can't open nnet: '{s}' Error:{}", .{ p, err });
@@ -360,62 +339,37 @@ pub fn train(alloc: *mem.Allocator) !void {
         bin_file.readFile(NNet, &net, &in_file) catch |err| debug.panic("Can't open nnet: '{s}' Error:{}", .{ p, err });
     } else net.randomize(&rnd.random);
 
+    // train
     var timer = try std.time.Timer.start();
     try trainer.trainEpoches(&net, &td.accessor, @intCast(u32, options.epoches));
-    debug.print("\nTotal train time: {}\n", .{fmtDuration(timer.lap())});
+    mlog.notice("\nTotal train time: {}\n", .{fmtDuration(timer.lap())});
 
+    // save net
     if (options.save) |p| {
         var in_file = std.fs.cwd().createFile(p, .{}) catch |err| debug.panic("Can't open file for storing nnet: '{s}' Error:{}", .{ p, err });
         defer in_file.close();
         bin_file.writeFile(NNet, &net, &in_file) catch |err| debug.panic("Can't write nnet to file: '{s}' Error:{}", .{ p, err });
     }
-
-    // var total_err: f64 = 0.0;
-    // const Thread = struct {
-    //     handle: std.Thread = undefined,
-    //     net: NNet,
-    // };
-    // var threads: []Thread = try alloc.alloc(Thread, cores);
-    // defer alloc.free(threads);
-    // var train_iters: usize = 1;
-    // while (train_iters > 0) : (train_iters -= 1) {
-    //     total_err = 0;
-    //     var prev_test: usize = 0;
-    //     for (threads) |*worker, tidx| {
-    //         worker.net = initial_net;
-    //         const slice_end = if (tidx + 1 == cores) td.images.items.len else prev_test + td.images.items.len / cores;
-
-    //         worker.handle = try std.Thread.spawn(.{}, NNet.train, .{ &worker.net, td.images.items[prev_test..slice_end], td.answers.items[prev_test..slice_end] });
-    //         prev_test = slice_end;
-    //     }
-    //     // join
-    //     debug.print("{} threads launched, waiting for them to finish.\n", .{cores});
-    //     for (threads) |*worker| {
-    //         std.Thread.join(worker.handle);
-    //         //initial_net = worker.net;
-    //     }
-    //     debug.print("\nTotal train time: {} Total err: {d:.4}\n", .{ fmtDuration(timer.lap()), total_err });
-    // }
 }
 
 pub fn main() !void {
-    LogCtx.configure_console();
-    log_ctx = LogCtx.init();
-    // rlog.alert("alert", .{});
-    // rlog.crit("crit", .{});
-    // rlog.debug("debug", .{});
-    // rlog.emerg("emerg", .{});
-    // rlog.err("err", .{});
-    // rlog.info("info", .{});
-    // rlog.notice("notice", .{});
-    // rlog.warn("warn", .{});
+    LogCtx.init();
+    defer LogCtx.deinit() catch debug.print("Can't flush!", .{});
+    // mlog.alert("alert", .{});
+    // mlog.crit("crit", .{});
+    // mlog.debug("debug", .{});
+    // mlog.emerg("emerg", .{});
+    // mlog.err("err", .{});
+    // mlog.info("info", .{});
+    // mlog.notice("notice", .{});
+    // mlog.warn("warn", .{});
 
     options.workers = try std.Thread.getCpuCount();
     var galloc = std.heap.GeneralPurposeAllocator(.{}){};
     defer if (galloc.deinit()) {
         debug.panic("GeneralPurposeAllocator had leaks!", .{});
     };
-    var arena_log_alloc = std.heap.LoggingAllocator(std.log.Level.debug, std.log.Level.notice).init(&galloc.allocator);
+    var arena_log_alloc = std.heap.LoggingAllocator(std.log.Level.debug, std.log.Level.info).init(&galloc.allocator);
     var arena = std.heap.ArenaAllocator.init(&arena_log_alloc.allocator);
     //var arena = std.heap.ArenaAllocator.init(&galloc.allocator);
     defer arena.deinit();
@@ -484,6 +438,8 @@ pub fn main() !void {
                 td.saveImagesBatch() catch |err| debug.panic("Error: {}", .{err});
             } else if (std.cstr.cmp(argv, "train") == 0) {
                 train(&arena.allocator) catch |err| debug.panic("Error: {}", .{err});
+            } else if (std.cstr.cmp(argv, "test") == 0) {
+                try doTest(&arena.allocator);
             } else if (std.cstr.cmp(argv, "help") == 0) {
                 printHelp();
             } else std.debug.panic("Unknown argument: {s}", .{argv});

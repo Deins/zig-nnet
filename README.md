@@ -14,16 +14,18 @@ Output program should be built at default location `./zig-out/bin/nn` or `*.exe`
 
 ## Usage
 
+Download MNIST dataset from [here](https://datahack.analyticsvidhya.com/contest/practice-problem-identify-the-digits/#ProblemStatement) and extract it at `./data/digits/`.
+
 (Optional) It is recommended to preprocess input for faster further loading. (has to be done once or after dataset or file format is modified).
 
 ```sh
 ./zig-out/bin/nn preprocess
 ```
 
-Train new network:
+Train new network and save output net:
 
 ```sh
- .\zig-out\bin\nn.exe --save data/n.net --learn-rate 0.5 --batch-size 32 --epoches 2 --workers 4 train
+ ./zig-out/bin/nn.exe --save data/n.net --learn-rate 0.01 --batch-size 64 --epoches 5 --workers 4 train
 ```
 
 You can use `--load data/n.net` afterwards, to load existing net instead of generating new and train it further or with different settings.

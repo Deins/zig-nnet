@@ -1,3 +1,5 @@
+data/digits/
+data/*.data
 zig-cache/
 zig-out/
 /release/

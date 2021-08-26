@@ -21,6 +21,7 @@ const Futex = std.Thread.Futex;
 // multithreaded nnet trainer
 pub fn forNet(NNet: anytype) type {
     const TestAccessor = @import("tdata.zig").forData(NNet.ValType, NNet.input_len, NNet.output_len).TestAccessor;
+    const TestCase = @import("tdata.zig").forData(NNet.ValType, NNet.input_len, NNet.output_len).TestCase;
     return struct {
         const Self = @This();
         const Float = NNet.ValType;
@@ -29,7 +30,7 @@ pub fn forNet(NNet: anytype) type {
         const WorkQueue = struct {
             const stop = maxInt(u32);
             const start = stop - 1;
-            inputs: []usize = undefined,
+            inputs: []TestCase = undefined,
             next_input: atomic.Atomic(u32) = .{ .value = start },
             results_done: atomic.Atomic(u32) = .{ .value = 0 },
             results_mutex: std.Thread.Mutex = .{},
@@ -50,17 +51,17 @@ pub fn forNet(NNet: anytype) type {
             };
         }
 
-        fn worker(wq: *WorkQueue, inp_nnet: *NNet, td: *TestAccessor) void {
+        fn worker(wq: *WorkQueue, inp_nnet: *NNet) void {
             @setFloatMode(std.builtin.FloatMode.Optimized);
             var nnet = inp_nnet;
             var r: NNet.TrainResult = .{};
             Futex.wait(&wq.next_input, WorkQueue.start, null) catch unreachable;
-            var inputs: []usize = wq.inputs;
+            var inputs : []TestCase = wq.inputs;
             main_worker_loop: while (true) {
-                var input_idx = wq.next_input.fetchAdd(1, atomic.Ordering.SeqCst);
+                var input_idx = wq.next_input.fetchAdd(1, atomic.Ordering.AcqRel);
                 if (input_idx < inputs.len) {
                     //var timer = std.time.Timer.start() catch unreachable;
-                    nnet.trainDeriv(td.getTest(inputs[input_idx]), &r);
+                    nnet.trainDeriv(inputs[input_idx], &r);
                     //std.debug.print("trainDeriv: {}\n", .{std.fmt.fmtDuration(timer.lap())});
                 } else {
                     // no more inputs
@@ -71,7 +72,7 @@ pub fn forNet(NNet: anytype) type {
                         var total = wq.results.test_cases;
                         lock.release();
                         var total_i: u32 = @floatToInt(u32, total);
-                        wq.results_done.store(total_i, .SeqCst);
+                        wq.results_done.store(total_i, .Release);
                         if (total_i == @intCast(u32, inputs.len)) {
                             Futex.wake(&wq.results_done, maxInt(u32));
                             //log.info("wake: {}", .{total_i});
@@ -79,13 +80,13 @@ pub fn forNet(NNet: anytype) type {
                         r = .{}; // fresh working copy
                     }
                     { // go to sleep
-                        var inp: u32 = wq.next_input.load(.SeqCst);
+                        var inp: u32 = wq.next_input.load(.Acquire);
                         while (inp >= inputs.len) {
                             if (inp == WorkQueue.stop) {
                                 break :main_worker_loop; // all done - exit
                             }
                             Futex.wait(&wq.next_input, inp, null) catch unreachable;
-                            inp = wq.next_input.load(.SeqCst);
+                            inp = wq.next_input.load(.Acquire);
                         }
                     }
                     // prep for work
@@ -98,25 +99,28 @@ pub fn forNet(NNet: anytype) type {
         pub fn trainEpoches(self: *Self, nnet: *NNet, td: *TestAccessor, epoches: u32) !void {
             @setFloatMode(std.builtin.FloatMode.Optimized);
             const workers: usize = @minimum(self.workers, self.batch_size);
+            if (workers < 1 or workers > 1024) std.debug.panic("Invalid worker count: {}", .{workers});
             std.debug.print("Epoch {} started (batchsize: {}, threads: {})\n", .{ self.epoch_idx, self.batch_size, self.workers });
             var timer = try std.time.Timer.start();
             const test_len: usize = td.getLen();
             // TODO: move as struct member to avoid allocating for each epoch
-            var shuffled: []usize = try self.alloc.alloc(usize, test_len);
+            var shuffled: []TestCase = try self.alloc.alloc(TestCase, test_len);
             defer self.alloc.free(shuffled);
-            for (shuffled) |*e, idx| e.* = idx;
+            for (shuffled) |*e, idx| e.* = td.getTest(idx);
 
             var wq = try self.alloc.create(WorkQueue);
             defer self.alloc.destroy(wq);
+            wq.* = .{};
             var threads = try self.alloc.alloc(std.Thread, workers);
             defer self.alloc.free(threads);
 
-            for (threads) |*t| t.* = try std.Thread.spawn(.{ .stack_size = 1671168 + @sizeOf(NNet) }, worker, .{ wq, nnet, td });
+            for (threads) |*t| t.* = try std.Thread.spawn(.{ .stack_size = 1671168 + @sizeOf(NNet) }, worker, .{ wq, nnet });
 
+            var print_timer = try std.time.Timer.start();
             var epoch_i: u32 = 0;
             while (epoch_i < epoches) : (epoch_i += 1) {
                 defer self.epoch_idx += 1;
-                self.rnd.shuffle(usize, shuffled);
+                self.rnd.shuffle(TestCase, shuffled);
 
                 wq.* = .{};
                 var correct: u32 = 0.0;
@@ -129,31 +133,38 @@ pub fn forNet(NNet: anytype) type {
                         wq.results = .{};
                         l.release();
                     } else @panic("Threading error: someone has grabbed results lock!");
-                    wq.results_done.store(0, .SeqCst);
+                    wq.results_done.store(0, .Release);
                     wq.inputs = batch;
-                    wq.next_input.store(@intCast(u32, 0), .SeqCst);
+                    wq.next_input.store(@intCast(u32, 0), .Release);
                     Futex.wake(&wq.next_input, maxInt(u32)); // wake workers
                     // wait for result
                     var expect_res: u32 = 0;
                     while (expect_res != batch.len) {
                         Futex.wait(&wq.results_done, expect_res, null) catch unreachable;
-                        expect_res = wq.results_done.load(.SeqCst);
+                        expect_res = wq.results_done.load(.Acquire);
                         //log.info("Results: {}", .{expect_res});
                     }
                     // update nnet
                     // note: we don't lock wq.results as at this point workers are sleeping
                     if (@floatToInt(usize, wq.results.test_cases) != batch.len)
                         std.debug.panic("Bad threading - result count doesn't match expected batch size! {}/{}", .{ @floatToInt(usize, wq.results.test_cases), batch.len });
-                    wq.results.average();
+                    //wq.results.average();
                     nnet.learn(wq.results, self.learn_rate);
+                    if (!std.math.isFinite(wq.results.loss)) 
+                        std.debug.panic("Batch {}# loss not finite! {}", .{bb, wq.results.loss});
                     loss += wq.results.loss;
+                    if (!std.math.isFinite(wq.results.loss)) 
+                        std.debug.panic("Batch {}# loss not finite! {}", .{bb, loss});
                     correct += wq.results.correct;
-                    //const acc = 100 * @intToFloat(Float, wq.results.correct) / @intToFloat(Float, batch.len);
-                    //log.info("Batch {}# loss: {d:.4} accuracy: {d:.2}%", .{ bb / self.batch_size, wq.results.loss, acc });
+                    if (print_timer.read() > 100 * 1000 * 1000) {
+                        print_timer.reset();
+                        const acc = 100 * @intToFloat(Float, wq.results.correct) / @intToFloat(Float, batch.len);
+                        log.info("Batch {}# loss: {d:.4} accuracy: {d:.2}%", .{ bb / self.batch_size, wq.results.loss, acc });
+                    }
                 }
                 // print stats
                 const accuracy = @intToFloat(Float, correct) / @intToFloat(Float, test_len);
-                std.debug.print("\nEpoch {}# train time: {} avg loss: {d:.4} accuracy: {d:.2}%\n", .{ self.epoch_idx, std.fmt.fmtDuration(timer.lap()), loss / @intToFloat(Float, test_len), accuracy * 100 });
+                log.notice("Epoch {}# train time: {} avg loss: {d:.4} accuracy: {d:.2}%\n", .{ self.epoch_idx, std.fmt.fmtDuration(timer.lap()), loss / @intToFloat(Float, test_len), accuracy * 100 });
             }
             // stop workers
             wq.next_input.store(WorkQueue.stop, .SeqCst);
