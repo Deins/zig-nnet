@@ -120,19 +120,20 @@ const NNet = struct {
 
     pub const TrainResult = struct {
         correct: u32 = 0, // was answer correct, in case of batch: how many?
-        loss: Float = std.math.nan(Float),
+        loss: Float = 0,
         // for merges: how may tests this struct represent
         //  after merge is finalized this is inversed to negative number to prevent accidental wrong merges etc.
         test_cases: Float = 0,
         // Backprop weight derivatives
-        d_w0: [sizes[0]]@Vector(sizes[1], Float) = undefined,
-        d_w1: [sizes[1]]@Vector(sizes[2], Float) = undefined,
-        d_w2: [sizes[2]]@Vector(sizes[3], Float) = undefined,
+        d_w0: [sizes[0]]@Vector(sizes[1], Float) = [_]@Vector(sizes[1], Float){@splat(sizes[1], @as(Float, 0))} ** sizes[0],
+        d_w1: [sizes[1]]@Vector(sizes[2], Float) = [_]@Vector(sizes[2], Float){@splat(sizes[2], @as(Float, 0))} ** sizes[1],
+        d_w2: [sizes[2]]@Vector(sizes[3], Float) = [_]@Vector(sizes[3], Float){@splat(sizes[3], @as(Float, 0))} ** sizes[2],
 
         // merges training results for batch training
         //  derivatives are summed, call finalizeMerge() before applying to average them
         pub fn merge(self: *TrainResult, b: TrainResult) void {
             @setFloatMode(std.builtin.FloatMode.Optimized);
+            if (b.test_cases == 0) return;
             if (self.test_cases == 0) {
                 self.* = b;
                 return;
@@ -156,7 +157,7 @@ const NNet = struct {
             }
         }
 
-        pub fn finalizeMerge(self: *TrainResult) void {
+        pub fn average(self: *TrainResult) void {
             @setFloatMode(std.builtin.FloatMode.Optimized);
             std.debug.assert(self.test_cases >= 1);
             if (self.test_cases == 1) return;
@@ -260,7 +261,7 @@ const NNet = struct {
             //      𝝏total_err / 𝝏w
             const d_err_w = d_err_oa * d_oa_o * @splat(sizes[3], d_o_w[nidx]);
             nnet.assertFinite(d_err_w, "backprop out: d_err_w");
-            train_result.d_w2[nidx] = d_err_w; // store result
+            train_result.d_w2[nidx] += d_err_w; // store result
         }
         // how much Output error changes with respect to output (non activated):
         //      𝝏err_o / 𝝏h2_na
@@ -293,12 +294,12 @@ const NNet = struct {
                 const d_err_w = d_err_h * d_h2_h2na * @splat(h_len, d_o_w[nidx]);
                 nnet.assertFinite(d_err_w, "backprop hidden: d_err_w");
                 // store result
-                train_result.d_w1[nidx] = d_err_w;
+                train_result.d_w1[nidx] += d_err_w;
             }
         }
-        train_result.correct = if (predicted_correct) 1 else 0;
-        train_result.loss = total_err;
-        train_result.test_cases = 1;
+        train_result.correct += @as(u32, if (predicted_correct) 1 else 0);
+        train_result.loss += total_err;
+        train_result.test_cases += 1;
 
         if (false) { // Log
             //debug.print("feedForward {}#\t{}\n", .{ ti, fmtDuration(timer.lap()) });
@@ -360,10 +361,7 @@ pub fn train(alloc: *mem.Allocator) !void {
     } else net.randomize(&rnd.random);
 
     var timer = try std.time.Timer.start();
-    var epoches: usize = options.epoches;
-    while (epoches > 0) : (epoches -= 1) {
-        try trainer.trainEpoch(&net, &td.accessor);
-    }
+    try trainer.trainEpoches(&net, &td.accessor, @intCast(u32, options.epoches));
     debug.print("\nTotal train time: {}\n", .{fmtDuration(timer.lap())});
 
     if (options.save) |p| {
