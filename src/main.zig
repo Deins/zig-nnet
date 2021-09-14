@@ -10,9 +10,8 @@ const bin_file = @import("bin_file.zig");
 
 const Float = f32;
 
-const tdata = @import("tdata.zig").forData(f32, 28 * 28, 10);
-const TrainingData = tdata.TrainingData;
-const TestCase = tdata.TestCase;
+const Dataset = @import("csv_img_dataset.zig").forData(f32, .{ 28, 28 }, 10);
+const TestCase = Dataset.TestCase;
 const nnet = @import("nnet.zig").typed(Float);
 const LogCtx = @import("log.zig");
 
@@ -20,6 +19,7 @@ const Options = struct {
     workers: usize = 0,
     load: ?[]const u8 = null,
     save: ?[]const u8 = null,
+    img_dir_out: ?[]const u8 = null,
     epoches: usize = 1,
     learn_rate: Float = 0.1,
     batch_size: usize = 16,
@@ -33,22 +33,29 @@ const mlog = LogCtx.scoped(.main);
 pub const log_level = LogCtx.log_level;
 pub const log = LogCtx.log;
 
+const NNet2 = struct {
+    li: nnet.Layer(28 * 28, 64) = .{},
+    l1: nnet.Layer(64, 10) = .{},
+    lo: nnet.Layer(10, 0) = .{},
+};
+
 const NNet = struct {
     const Self = @This();
     pub const ValType = Float;
 
     // neural net layer sizes
     //const sizes = [4]usize{ 28 * 28, 128, 64, 10 };
-    pub const sizes = [4]usize{ 28 * 28, 28 * 28, 64, 10 };
+    // TODO: layer 1 is skipped right now
+    pub const sizes = [4]usize{ 28 * 28, 28 * 28, 256, 10 };
     pub const input_len = sizes[0];
     pub const output_len = sizes[sizes.len - 1];
 
-    // activation functions
-    pub const a1 = nnet.func.sigmoid;
-    pub const a2 = nnet.func.sigmoid;
-    pub const a3 = nnet.func.sigmoid;
+    // activation functions 
+    pub const a1 = nnet.func.relu_leaky;
+    pub const a2 = nnet.func.relu_leaky;
+    pub const a3 = nnet.func.softmax;
 
-    pub const err_fn = nnet.func.squaredErr;
+    pub const err_fn = nnet.func.logLoss;
 
     pub const TrainResult = struct {
         correct: u32 = 0, // was answer correct, in case of batch: how many?
@@ -56,6 +63,10 @@ const NNet = struct {
         // for merges: how may tests this struct represent
         //  after merge is finalized this is inversed to negative number to prevent accidental wrong merges etc.
         test_cases: Float = 0,
+        // Backprop bias derivatives
+        d_b1: @Vector(sizes[1], Float) = std.mem.zeroes(@Vector(sizes[1], Float)),
+        d_b2: @Vector(sizes[2], Float) = std.mem.zeroes(@Vector(sizes[2], Float)),
+        d_bo: @Vector(sizes[3], Float) = std.mem.zeroes(@Vector(sizes[3], Float)),
         // Backprop weight derivatives
         d_w0: [sizes[0]]@Vector(sizes[1], Float) = [_]@Vector(sizes[1], Float){@splat(sizes[1], @as(Float, 0))} ** sizes[0],
         d_w1: [sizes[1]]@Vector(sizes[2], Float) = [_]@Vector(sizes[2], Float){@splat(sizes[2], @as(Float, 0))} ** sizes[1],
@@ -109,6 +120,15 @@ const NNet = struct {
             }
             self.test_cases *= -1;
         }
+
+        pub fn print(self : *@This()) void {
+            mlog.info("b1: {d:.2}", .{self.d_b1});
+            mlog.info("b2: {d:.2}", .{self.d_b2});
+            mlog.info("bo: {d:.2}", .{self.d_bo});
+            mlog.info("w0: {d:.2}", .{self.d_w0});
+            mlog.info("w1: {d:.2}", .{self.d_w1});
+            mlog.info("w2: {d:.2}", .{self.d_w2});
+        }
     };
 
     // Member variables:
@@ -135,21 +155,24 @@ const NNet = struct {
     pub fn randomize(self: *Self, rnd: *std.rand.Random) void {
         @setFloatMode(std.builtin.FloatMode.Optimized);
         nnet.randomize(rnd, &self.w0);
-        nnet.randomize(rnd, &self.b1);
         nnet.randomize(rnd, &self.w1);
-        nnet.randomize(rnd, &self.b2);
         nnet.randomize(rnd, &self.w2);
-        nnet.randomize(rnd, &self.bo);
+        // nnet.randomize(rnd, &self.b1);
+        // nnet.randomize(rnd, &self.b2);
+        // nnet.randomize(rnd, &self.bo);
+        self.b1 = @splat(sizes[1], @as(Float, 0.1));
+        self.b2 = @splat(sizes[2], @as(Float, 0.1));
+        self.bo = @splat(sizes[3], @as(Float, 0.1));
         //nnet.randomize(rnd, &self.b4);
-        self.bo = @splat(@typeInfo(@TypeOf(self.bo)).Vector.len, @as(Float, 0));
+        //self.bo = std.mem.zeroes(@TypeOf(self.bo));
     }
 
     pub fn feedForward(self: *Self, input: *const @Vector(sizes[0], Float)) void {
         @setFloatMode(std.builtin.FloatMode.Optimized);
         self.h1 = input.*;
         // nnet.forward(self.i, self.w0, Self.a1, self.b1, void, &self.h1);
-        nnet.forward(self.h1, self.w1, Self.a2, self.b2, void, &self.h2);
-        nnet.forward(self.h2, self.w2, Self.a3, self.bo, void, &self.out_activated);
+        nnet.forward(self.h1, self.w1, Self.a2, self.b2, &self.h2);
+        nnet.forward(self.h2, self.w2, Self.a3, self.bo, &self.out_activated);
         nnet.assertFinite(self.out_activated, "out_activated");
     }
 
@@ -161,6 +184,7 @@ const NNet = struct {
         self.feedForward(&test_case.input);
 
         const predicted_confidence: Float = @reduce(.Max, self.out_activated);
+        //mlog.debug("output layer: {}", .{self.out_activated});
         var answer_vector = test_case.answer;
         const answer: u8 = ablk: {
             var i: u8 = 0;
@@ -186,20 +210,23 @@ const NNet = struct {
         //      𝝏out_activated / 𝝏out
         const d_oa_o = a3.derivZ(self.out_activated);
         nnet.assertFinite(d_oa_o, "backprop out: d_oa_o");
-        // iterate last hidden layer neurons and update its weights
-        for (self.w2) |_, nidx| {
-            // how much (non activated) output change with respect to the weights:
-            //      𝝏out / 𝝏w
-            const d_o_w = self.h2; // last hidden layer
-            // how much total error change with respect to the weights:
-            //      𝝏total_err / 𝝏w
-            const d_err_w = d_err_oa * d_oa_o * @splat(sizes[3], d_o_w[nidx]);
-            nnet.assertFinite(d_err_w, "backprop out: d_err_w");
-            train_result.d_w2[nidx] += d_err_w; // store result
-        }
         // how much Output error changes with respect to output (non activated):
         //      𝝏err_o / 𝝏h2_na
         const d_oerr_o_na = d_err_oa * d_oa_o;
+        {
+            // how much (non activated) output change with respect to the weights:
+            //      𝝏out / 𝝏w
+            const d_o_w = self.h2; // last hidden layer
+            train_result.d_bo += d_oerr_o_na; // store result
+            // iterate last hidden layer neurons and update its weights
+            for (self.w2) |_, nidx| {
+                // how much total error change with respect to the weights:
+                //      𝝏total_err / 𝝏w
+                const d_err_w = d_oerr_o_na * @splat(sizes[3], d_o_w[nidx]);
+                nnet.assertFinite(d_err_w, "backprop out: d_err_w");
+                train_result.d_w2[nidx] += d_err_w; // store result
+            }
+        }
 
         { // Hidden layer
             const h_len = @typeInfo(@TypeOf(self.h2)).Vector.len;
@@ -219,16 +246,20 @@ const NNet = struct {
             const d_h2_h2na = a1.derivZ(self.h2);
             nnet.assertFinite(d_h2_h2na, "backprop a1.derivZ( d_h2_h2na )");
 
-            for (self.w1) |_, nidx| {
+            {
                 // how much hidden layer (non activated) output change with respect to the weights:
                 //      𝝏out / 𝝏w
                 const d_o_w = self.h1;
-                // how much total error change with respect to the weights:
-                //      𝝏total_err / 𝝏w
-                const d_err_w = d_err_h * d_h2_h2na * @splat(h_len, d_o_w[nidx]);
-                nnet.assertFinite(d_err_w, "backprop hidden: d_err_w");
-                // store result
-                train_result.d_w1[nidx] += d_err_w;
+                const d_tmp = d_err_h * d_h2_h2na;
+                train_result.d_b2 += d_tmp; // store result
+                for (self.w1) |_, nidx| {
+                    // how much total error change with respect to the weights:
+                    //      𝝏total_err / 𝝏w
+                    const d_err_w = d_tmp * @splat(h_len, d_o_w[nidx]);
+                    nnet.assertFinite(d_err_w, "backprop hidden: d_err_w");
+                    // store result
+                    train_result.d_w1[nidx] += d_err_w;
+                }
             }
         }
         train_result.correct += @as(u32, if (predicted_correct) 1 else 0);
@@ -259,11 +290,13 @@ const NNet = struct {
 
     pub fn learn(self: *Self, train_results: TrainResult, learn_rate: Float) void {
         @setFloatMode(std.builtin.FloatMode.Optimized);
+        self.bo += train_results.d_bo * @splat(@typeInfo(@TypeOf(self.bo)).Vector.len, learn_rate);
+        self.b2 += train_results.d_b2 * @splat(@typeInfo(@TypeOf(self.b2)).Vector.len, learn_rate);
         for (self.w1) |*w, nidx| {
-            w.* -= train_results.d_w1[nidx] * @splat(@typeInfo(@TypeOf(w.*)).Vector.len, @as(Float, learn_rate));
+            w.* -= train_results.d_w1[nidx] * @splat(@typeInfo(@TypeOf(w.*)).Vector.len, learn_rate);
         }
         for (self.w2) |*w, nidx| {
-            w.* -= train_results.d_w2[nidx] * @splat(@typeInfo(@TypeOf(w.*)).Vector.len, @as(Float, learn_rate));
+            w.* -= train_results.d_w2[nidx] * @splat(@typeInfo(@TypeOf(w.*)).Vector.len, learn_rate);
         }
     }
 };
@@ -276,21 +309,31 @@ pub fn doTest(alloc: *mem.Allocator) !void {
         bin_file.readFile(NNet, &net, &in_file) catch |err| debug.panic("Can't open nnet: '{s}' Error:{}", .{ p, err });
     } else std.debug.panic("Can't test, network not specified! Use '--load' to specify network!", .{});
 
-    var td = TrainingData.init(alloc);
-    var dir: std.fs.Dir = std.fs.cwd();
-    dir = try dir.openDir("data", .{});
-    dir = try dir.openDir("digits", .{});
-    dir = try dir.openDir("Images", .{});
-    dir = try dir.openDir("test", .{ .iterate = true });
-    var it = dir.iterate();
-    while (try it.next()) |entry| {
-        if (entry.kind != .File) mlog.warn("Skipping `{s}` - not a file!", .{entry.name});
-        const name_ptr = try td.image_names.addOne();
-        name_ptr.* = try alloc.dupe(u8, entry.name);
-        try td.answers.append(0);
-    }
-    mlog.info("Test set has {} entries, loading images...", .{td.answers.items.len});
-    try td.loadImages("./data/digits/Images/test/");
+    var td = Dataset.init(alloc);
+    const img_dir_path = "./data/digits/Images/test/";
+    try td.load("./data/digits/test.csv", img_dir_path, "data/test.batch", false);
+    mlog.info("Test data loaded: {} entries", .{td.test_cases.items.len});
+    const in_dir = try fs.cwd().openDir(img_dir_path, .{});
+    const out_dir: ?fs.Dir = odo: {
+        if (options.img_dir_out) |p| {
+            if (fs.cwd().openDir(p, .{})) |pdir| {
+                pdir.makeDir("0") catch |err| mlog.warn("Can't create directory for output! {}", .{err});
+                pdir.makeDir("1") catch |err| mlog.warn("Can't create directory for output! {}", .{err});
+                pdir.makeDir("2") catch |err| mlog.warn("Can't create directory for output! {}", .{err});
+                pdir.makeDir("3") catch |err| mlog.warn("Can't create directory for output! {}", .{err});
+                pdir.makeDir("4") catch |err| mlog.warn("Can't create directory for output! {}", .{err});
+                pdir.makeDir("5") catch |err| mlog.warn("Can't create directory for output! {}", .{err});
+                pdir.makeDir("6") catch |err| mlog.warn("Can't create directory for output! {}", .{err});
+                pdir.makeDir("7") catch |err| mlog.warn("Can't create directory for output! {}", .{err});
+                pdir.makeDir("8") catch |err| mlog.warn("Can't create directory for output! {}", .{err});
+                pdir.makeDir("9") catch |err| mlog.warn("Can't create directory for output! {}", .{err});
+                break :odo pdir;
+            } else |err| {
+                mlog.err("Can't opon img_dir_out: '{s}' err: {}", .{ p, err });
+            }
+        }
+        break :odo null;
+    };
 
     { // iterate and test
         var of = try std.fs.cwd().createFile("res.csv", .{});
@@ -298,33 +341,37 @@ pub fn doTest(alloc: *mem.Allocator) !void {
         const writer = of.writer();
         try writer.print("filename,label\n", .{});
 
-        var i: usize = 0;
-        const len = td.image_names.items.len;
-
-        while (i < len) : (i += 1) {
-            const test_case = td.accessor.getTest(i);
-            _ = net.feedForward(&test_case.input);
-            var best : u8 = 0;
-            var best_confidence : Float = 0;
-            var ti : usize = 0;
-            while (ti < 10) : (ti+=1) {
+        for (td.test_cases.items) |*test_case, i| {
+            net.feedForward(&test_case.input);
+            var best: u8 = 0;
+            var best_confidence: Float = 0;
+            var ti: usize = 0;
+            while (ti < 10) : (ti += 1) {
                 if (best_confidence < net.out_activated[ti]) {
                     best = @intCast(u8, ti);
                     best_confidence = net.out_activated[ti];
                 }
             }
 
-            try of.writer().print("{s},{}\n", .{test_case.name, best} );
-            mlog.info("{s} , {} , {d:.1}%\t[{d:.2}]", .{test_case.name, best, best_confidence*100.0, net.out_activated * @splat(10, @as(Float, 100))} );
+            if (out_dir) |od| {
+                var out_name_buf = [_]u8{0} ** 32;
+                const out_name = std.fmt.bufPrint(out_name_buf[0..], "{}/{d:.0}%_{}#.png", .{best, best_confidence*100, i}) catch unreachable;
+                in_dir.copyFile(td.getTestName(i), od, out_name, .{}) catch |err| mlog.err("Cant copy test output '{s}' err:{}", .{out_name, err});
+            }
+
+            const test_name = td.test_names.items[i];
+            try of.writer().print("{s},{}\n", .{ test_name, best });
+            mlog.info("{s} , {} , {d:.1}%\t[{d:.2}]", .{ test_name, best, best_confidence * 100.0, net.out_activated * @splat(10, @as(Float, 100)) });
         }
     }
 }
 
 pub fn train(alloc: *mem.Allocator) !void {
-    var td = TrainingData.init(alloc);
-    try td.load(false);
+    var td = Dataset.init(alloc);
+    defer td.deinit();
+    try td.load("./data/digits/train.csv", "./data/digits/Images/train/", "data/train.batch", false);
     const seed = 364123;
-    var rnd = std.rand.DefaultPrng.init(seed);
+    var rnd = std.rand.Sfc64.init(seed);
     const Trainer = @import("nnet_trainer.zig").forNet(NNet);
     var trainer = Trainer.init(alloc, &rnd.random);
     trainer.batch_size = options.batch_size;
@@ -355,24 +402,15 @@ pub fn train(alloc: *mem.Allocator) !void {
 pub fn main() !void {
     LogCtx.init();
     defer LogCtx.deinit() catch debug.print("Can't flush!", .{});
-    // mlog.alert("alert", .{});
-    // mlog.crit("crit", .{});
-    // mlog.debug("debug", .{});
-    // mlog.emerg("emerg", .{});
-    // mlog.err("err", .{});
-    // mlog.info("info", .{});
-    // mlog.notice("notice", .{});
-    // mlog.warn("warn", .{});
+    //LogCtx.testOut();
 
     options.workers = try std.Thread.getCpuCount();
     var galloc = std.heap.GeneralPurposeAllocator(.{}){};
     defer if (galloc.deinit()) {
         debug.panic("GeneralPurposeAllocator had leaks!", .{});
     };
-    var arena_log_alloc = std.heap.LoggingAllocator(std.log.Level.debug, std.log.Level.info).init(&galloc.allocator);
-    var arena = std.heap.ArenaAllocator.init(&arena_log_alloc.allocator);
-    //var arena = std.heap.ArenaAllocator.init(&galloc.allocator);
-    defer arena.deinit();
+    var lalloc = std.heap.LoggingAllocator(std.log.Level.debug, std.log.Level.info).init(&galloc.allocator);
+    var alloc = &lalloc.allocator;
 
     { // ARGS
         const args = (try std.process.argsAlloc(&galloc.allocator))[1..]; // skip first arg as it points to current executable
@@ -432,14 +470,29 @@ pub fn main() !void {
                 if (ai + 1 >= args.len) std.debug.panic("Argument '{s}' needs to be followed by path!", .{argv});
                 options.epoches = try std.fmt.parseUnsigned(usize, args[ai + 1], 0);
                 skip = 1;
+            } else if (std.cstr.cmp(argv, "--img-dir-out") == 0) {
+                if (ai + 1 >= args.len) std.debug.panic("Argument '{s}' needs to be followed by path!", .{argv});
+                options.img_dir_out = args[ai + 1];
+                skip = 1;
             } else if (std.cstr.cmp(argv, "preprocess") == 0) {
-                var td = TrainingData.init(&arena.allocator);
-                td.load(true) catch |err| debug.panic("Error: {}", .{err});
-                td.saveImagesBatch() catch |err| debug.panic("Error: {}", .{err});
+                {
+                    mlog.notice("Preprocessing training data...", .{});
+                    var td = Dataset.init(alloc);
+                    defer td.deinit();
+                    td.load("./data/digits/train.csv", "./data/digits/Images/train/", "data/train.batch", true) catch |err| debug.panic("Error: {}", .{err});
+                    td.saveBatch("data/train.batch") catch |err| debug.panic("Error: {}", .{err});
+                }
+                {
+                    mlog.notice("Preprocessing test data...", .{});
+                    var td = Dataset.init(alloc);
+                    defer td.deinit();
+                    td.load("./data/digits/test.csv", "./data/digits/Images/test/", "data/test.batch", true) catch |err| debug.panic("Error: {}", .{err});
+                    td.saveBatch("data/test.batch") catch |err| debug.panic("Error: {}", .{err});
+                }
             } else if (std.cstr.cmp(argv, "train") == 0) {
-                train(&arena.allocator) catch |err| debug.panic("Error: {}", .{err});
+                train(alloc) catch |err| debug.panic("Error: {}", .{err});
             } else if (std.cstr.cmp(argv, "test") == 0) {
-                try doTest(&arena.allocator);
+                try doTest(alloc);
             } else if (std.cstr.cmp(argv, "help") == 0) {
                 printHelp();
             } else std.debug.panic("Unknown argument: {s}", .{argv});

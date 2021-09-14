@@ -21,12 +21,6 @@ const Header = packed struct {
     }
 };
 
-const BinFileError =  error {
-    TypeMismatch, // hash of member fields
-    UnsupportedType,
-    FileTooShort,
-};
-
 fn structHash(comptime t : type) HashVal {
     var h = Hash.init(.{});
     @setEvalBranchQuota(10000);
@@ -55,8 +49,8 @@ pub fn readFile(comptime t : type, v : *t, f : *std.fs.File) !void {
     var h = Header{};
     const h_expected = Header.fromType(t);
     if ((try f.*.readAll(std.mem.asBytes(&h))) != std.mem.asBytes(&h).len)
-        return BinFileError.FileTooShort;
-    if (!h.matches(h_expected)) return BinFileError.TypeMismatch;
+        return error.FileTooShort;
+    if (!h.matches(h_expected)) return error.TypeMismatch;
     if ((try f.*.readAll(std.mem.asBytes(v))) != std.mem.asBytes(v).len)
-        return BinFileError.FileTooShort;
+        return error.FileTooShort;
 }

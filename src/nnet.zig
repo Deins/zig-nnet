@@ -4,18 +4,74 @@ const math = std.math;
 const meta = std.meta;
 const trait = std.meta.trait;
 
-pub fn typed(comptime val_type: type) type {
+pub fn typed(comptime val_t: type) type {
     return struct {
         pub const func = @import("fn_deriv.zig");
+        pub const Float = val_t;
+
+        // const LayerType = enum {
+        //     Input,
+        //     Output,
+        //     FeedForward,
+        // };
+
+        // pub fn Layer(comptime neurons_: usize, comptime weigts_per_neuron_: usize, comptime activation_: anytype) type {
+        //     return struct {
+        //         const Self = @This();
+        //         pub const neurons_len = neurons_;
+        //         pub const weights_per_neuron = weigts_per_neuron_;
+        //         pub const bisases_len = biases_; // either 0 or neurons_len
+        //         pub const activation = activation_;
+
+        //         out: ?@Vector(neurons_len, Float) = null,
+        //         bias: ?@Vector(neurons_len, Float) = null,
+        //         weights: ?[neurons]@Vector(weights_per_neuron, Float) = null,
+
+        //         pub fn empty() Self {
+        //             return .{ null, null, null };
+        //         }
+        //     };
+        // }
+
+        pub fn TestCase(comptime input_len_: usize, comptime output_len_: usize) type {
+            return struct {
+                pub const input_len = input_len_;
+                pub const output_len = output_len_;
+                input: @Vector(input_len, Float), 
+                answer: @Vector(output_len, Float) 
+            };
+        }
+
+        pub fn TestAccessor(comptime test_case_t : type) type {
+            return struct {
+                const Self = @This();
+                countFn: fn (s: *Self) usize,
+                grabFn: fn (s: *Self, idx: usize) *const test_case_t,
+                freeFn: ?fn (s: *Self, tc: *const test_case_t) void = null,
+                
+                pub fn testCount(self: *Self) usize {
+                    return self.countFn(self);
+                }
+                
+                // call freeTest to release data (for loaders that support it)
+                pub fn grabTest(self: *Self, idx: usize) * const test_case_t {
+                    return self.grabFn(self, idx);
+                }
+            
+                pub fn freeTest(self: *Self, tc: *const test_case_t) void {
+                    if (self.freeFn) |f| return f(self, tc);
+                }
+            };
+        }
 
         // Feed-Forward
         // takes current neurons throught weights propogates it forward to next layer neurons `out`, then activates the neurons to `out_activated`
         // `out` can be void - activation will be done (if its not void) however un-activated output won't be stored and will be discarded
-        // `out_activated` can be void - activation will be skipped 
-        pub fn forward(neurons: anytype, weights: anytype, next_activation: anytype, next_biases: anytype, out : anytype, out_activated : anytype) void {
+        // `out_activated` can be void - activation will be skipped
+        pub fn forward(neurons: anytype, weights: anytype, next_activation: anytype, next_biases: anytype, out_activated: anytype) void {
             @setFloatMode(std.builtin.FloatMode.Optimized);
             // comptime checks
-            const do_activate : bool = comptime ablk:{
+            const do_activate: bool = comptime ablk: {
                 if (@TypeOf(out_activated) != @TypeOf(void)) {
                     if (@typeInfo(@TypeOf(out_activated)) != .Pointer)
                         @compileError("output_values has to be writeable pointer!");
@@ -25,7 +81,6 @@ pub fn typed(comptime val_type: type) type {
                     break :ablk true;
                 } else break :ablk false;
             };
-            const store_out : bool = comptime if (@TypeOf(out) == @TypeOf(void)) false else true; 
             const olen: u32 = comptime @typeInfo(@TypeOf(weights[0])).Vector.len;
             const nlen: u32 = comptime @typeInfo(@TypeOf(neurons)).Vector.len;
             comptime if (@typeInfo(@TypeOf(neurons)) != .Vector)
@@ -41,9 +96,6 @@ pub fn typed(comptime val_type: type) type {
             while (nidx < nlen) : (nidx += 1) {
                 res += @splat(olen, neurons[nidx]) * weights[nidx];
             }
-            if (store_out) {
-                out.* = res;
-            }
             if (do_activate) {
                 assertFinite(res, "feedforward: res");
                 out_activated.* = next_activation.f(res);
@@ -51,76 +103,18 @@ pub fn typed(comptime val_type: type) type {
             }
         }
 
-        pub fn dot(a : anytype, b : anytype) val_type {
-            return @reduce(.Add, a * b); 
-        }
-
-        pub fn transpose(inp : anytype, out: anytype) void {
-            @setFloatMode(std.builtin.FloatMode.Optimized);
-            if (@typeInfo(@TypeOf(inp)) != .Array) @compileError("input must be array of vectors!");
-            if (@typeInfo(@TypeOf(inp[0])) != .Vector) @compileError("input must be array of vectors!");
-            if (@typeInfo(@TypeOf(out)) != .Pointer) @compileError("output must be pointer to array of vectors!");
-            const n = inp.len;
-            const m = @typeInfo(@TypeOf(inp[0])).Vector.len;
-            if (@typeInfo(@TypeOf(out.*)).Array.len != m or @typeInfo(@TypeOf(out.*[0])).Vector.len != n) {
-                @compileError("input NxM has to have output MxN for transpose!");
-            }
-            var res : @TypeOf(out.*) = undefined;
-            var in : usize = 0;
-            var im : usize = 0;
-
-            // TODO: optimize - this might help:
-            //      https://fgiesen.wordpress.com/2013/07/09/simd-transposes-1/
-            //      https://fgiesen.wordpress.com/2013/08/29/simd-transposes-2/
-
-            // comptime fn genMasks (comptime n : usize, comptime m : usize) [m]@Vector( n, val_type) {
-            //     var masks : [m]@Vector( n, val_type) = undefined;
-            //     var i : usize = 0;
-            //     while (i < n) : (i+=1) {
-            //         masks[i] = 
-            //     }
-            // };
-
-            while (in < n) : (in += 1){
-                while (im < m) : (im += 1) {
-                    res[im][in] = inp[in][im];
-                }
-            }
-            out.* = res;
-        }
-
-        pub fn mat_mult(a : anytype, b : anytype, out : anytype) void {
-            // naming assumes column-major
-            const a_cols = a.len;
-            const a_rows = std.mem.len(a[0]);
-            const b_cols = b.len;
-            const b_rows = std.mem.len(b[0]);
-
-            comptime if (a_cols != b_rows) 
-                @compileError("Matrix multiplication requires that columns in A equals the number of rows in B!");
-            comptime if (@typeInfo(@TypeOf(out)) != .Pointer)
-                @compileError("Output must be pointer!");
-            comptime if (std.meta.child(out).len != b_cols and std.meta.child(out).child.Vector.len != a_rows)
-                @compileError("Output has invalid size!");
+        // d_oerr_o_na  = 𝝏err_total / 𝝏h  = how much Output error for {layer + 1} changes with respect to output (non activated)
+        //   
+        // pub fn backpropHidden(d_oerr_o_na : anytype, ) void {
             
-            // TODO: optimize, this might help: https://malithjayaweera.com/2020/07/blocked-matrix-multiplication/
-            var at : @TypeOf(a) = undefined;
-            transpose(a, &tmp);
-            var i : usize  = 0;
-            while (i < b_cols) : (i+=1) {
-                var j : usize  = 0;
-                while (j < a_rows) : (j+=1) {
-                    out[i][j] = dot(at[i], b[i]);
-                }
-            }
-        }
+        // }
 
         pub fn randomArray(rnd: *std.rand.Random, comptime t: type, comptime len: usize) [len]t {
             @setFloatMode(std.builtin.FloatMode.Optimized);
-            var rv: [len]val_type = undefined;
-            const coef = 1 / @as(val_type, len);
+            var rv: [len]Float = undefined;
+            const coef = 1 / @as(Float, len);
             for (rv) |*v| {
-                v.* = @floatCast(val_type, rnd.floatNorm(f64)) * coef;
+                v.* = @floatCast(Float, rnd.floatNorm(f64)) * coef;
             }
             return rv;
         }
@@ -145,29 +139,29 @@ pub fn typed(comptime val_type: type) type {
             }
         }
 
-        pub fn isFinite(v : anytype) bool{
+        pub fn isFinite(v: anytype) bool {
             const ti = @typeInfo(@TypeOf(v));
             if (ti == .Vector) {
                 const len = ti.Vector.len;
-                var i : usize = 0;
-                while (i < len) : (i+=1){
-                    if (!std.math.isFinite(v[i])) 
+                var i: usize = 0;
+                while (i < len) : (i += 1) {
+                    if (!std.math.isFinite(v[i]))
                         return false;
                 }
             } else {
                 for (v) |vi| {
-                    if (!std.math.isFinite(vi)) 
+                    if (!std.math.isFinite(vi))
                         return false;
                 }
             }
             return true;
         }
 
-        pub fn assertFinite(v : anytype, msg : []const u8) void {
+        pub fn assertFinite(v: anytype, msg: []const u8) void {
             if (std.builtin.mode != .Debug and std.builtin.mode != .ReleaseSafe)
                 return;
             if (!isFinite(v)) {
-                std.debug.panic("Values aren't finite!\n{s}\n{}", .{msg, v});
+                std.debug.panic("Values aren't finite!\n{s}\n{}", .{ msg, v });
             }
         }
     };
