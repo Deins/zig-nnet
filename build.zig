@@ -9,6 +9,7 @@ pub fn build(b: *Builder) void {
     if (target.isWindows()) {
         exe.want_lto = false; // TODO: remove when fixed. see: https://github.com/ziglang/zig/issues/8531
     }
+    exe.addBuildOption(?[]const u8, "--no-rosegment", null); // for debug symbols to work better: https://github.com/ziglang/zig/issues/1501
     exe.addCSourceFile("deps/stb.c", &[_][]const u8{});
     exe.addIncludeDir("deps/stb/");
     exe.addPackagePath("csv", "deps/zig-csv/src/main.zig");
