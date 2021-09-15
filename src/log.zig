@@ -66,7 +66,7 @@ pub fn log(
     //const prefix = "[" ++ @tagName(level) ++ "] " ++ scope_prefix;
     const prefix = "";
     const lock = outm.acquire();
-    const postfix = if (format.len > 1 and format[format.len-1] < ' ') "" else "\n";
+    const postfix = if (format.len > 1 and format[format.len - 1] < ' ') "" else "\n";
     out.print(color ++ prefix ++ format ++ ansi.style.reset ++ postfix, args) catch @panic("Can't write log!");
     if (@enumToInt(level) <= @enumToInt(std.log.Level.notice)) flush() catch @panic("Can't flush log!");
     lock.release();
@@ -76,10 +76,16 @@ fn configure_console() void {
     if (std.builtin.os.tag == .windows) {
         // configure windows console - use utf8 and ascii VT100 escape sequences
         const win_con = struct {
-            usingnamespace std.os.windows;
             const CP_UTF8: u32 = 65001;
             const ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004;
             const ENABLE_VIRTUAL_TERMINAL_INPUT = 0x0200;
+            const BOOL = std.os.windows.BOOL;
+            const HANDLE = std.os.windows.HANDLE;
+            const DWORD = std.os.windows.DWORD;
+            const GetStdHandle = std.os.windows.GetStdHandle;
+            const STD_OUTPUT_HANDLE = std.os.windows.STD_OUTPUT_HANDLE;
+            const STD_ERROR_HANDLE = std.os.windows.STD_ERROR_HANDLE;
+            const kernel32 = std.os.windows.kernel32;
             //const STD_INPUT_HANDLE: (DWORD) = -10;
             //const STD_OUTPUT_HANDLE: (DWORD) = -11;
             //const STD_ERROR_HANDLE: (DWORD) = -12;

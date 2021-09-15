@@ -164,7 +164,7 @@ pub const none = struct {
         return x;
     }
     pub fn deriv(x: anytype) @TypeOf(x) {
-        return splat(@TypeOf(z), 1);
+        return splat(@TypeOf(x), 1);
     }
     pub fn derivZ(z: anytype) @TypeOf(z) {
         return splat(@TypeOf(z), 1);

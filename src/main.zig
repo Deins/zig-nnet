@@ -10,7 +10,7 @@ const bin_file = @import("bin_file.zig");
 
 const Float = f32;
 
-const Dataset = @import("csv_img_dataset.zig").forData(f32, .{ 28, 28 }, 10);
+const Dataset = @import("csv_img_dataset.zig").forData(Float, .{ 28, 28 }, 10);
 const TestCase = Dataset.TestCase;
 const nnet = @import("nnet.zig").typed(Float);
 const LogCtx = @import("log.zig");
@@ -165,6 +165,10 @@ const NNet = struct {
         self.bo = @splat(sizes[3], @as(Float, 0.1));
         //nnet.randomize(rnd, &self.b4);
         //self.bo = std.mem.zeroes(@TypeOf(self.bo));
+
+        nnet.assertFinite(self.b1, "b1");
+        nnet.assertFinite(self.b2, "b2");
+        nnet.assertFinite(self.bo, "b3");
     }
 
     pub fn feedForward(self: *Self, input: *const @Vector(sizes[0], Float)) void {
@@ -265,27 +269,6 @@ const NNet = struct {
         train_result.correct += @as(u32, if (predicted_correct) 1 else 0);
         train_result.loss += total_err;
         train_result.test_cases += 1;
-
-        if (false) { // Log
-            //debug.print("feedForward {}#\t{}\n", .{ ti, fmtDuration(timer.lap()) });
-            //debug.print("'Answer: {c}\tTotalErr: {d:.4}'\n", .{ '0' + answer, total_err });
-
-            { // print output
-                // ✓✔ ⦸🅧⭙⦸⨂◉⛒⊘⛝✗✘ ➊⓵①
-                const symbol = if (predicted_correct) (ansi.style.fg.green ++ "✔") else (ansi.style.fg.red ++ "✘");
-                rlog.info("{s}" ++ ansi.style.reset, .{symbol});
-                rlog.info("  Answer: {c}\tconfidence: {d:.1}%\tloss: {d:.4}\t", .{ '0' + answer, predicted_confidence * 100, total_err });
-                if (!predicted_correct and false) {
-                    rlog.info("\n", .{});
-                    var i: u8 = 0;
-                    while (i < 10) : (i += 1) {
-                        rlog.info("'{c}' => {d:.0}%\n", .{ i + '0', self.out_activated[i] * 100 });
-                    }
-                    rlog.info("=======================\n", .{});
-                }
-            }
-        }
-        // std.log.info("Test (Thread #{}) iteration finished in {}. err: {}\n", .{ std.Thread.getCurrentId(), fmtDuration(timer.lap()), dataset_err });
     }
 
     pub fn learn(self: *Self, train_results: TrainResult, learn_rate: Float) void {

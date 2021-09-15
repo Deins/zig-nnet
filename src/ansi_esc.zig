@@ -64,7 +64,7 @@ pub const cursor = struct {
     } //moves cursor to beginning of previous line, # lines up
     //pub fn column() comptime []u8 {return code.ESC ++ "[#G"; } //moves cursor to column #
     pub fn get() []u8 {
-        return std.fmt.comptimePrint(code.ESC ++ "[6n", .{x});
+        return (code.ESC ++ "[6n");
     } //request cursor position (reports as ESC[#;#R)
 };
 
