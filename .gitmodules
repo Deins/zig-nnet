@@ -5,6 +5,3 @@
 [submodule "deps/zig-csv"]
 	path = deps/zig-csv
 	url = https://github.com/beho/zig-csv.git
-[submodule "deps/ZT"]
-	path = deps/ZT
-	url = https://github.com/JonSnowbd/ZT.git
