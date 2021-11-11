@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = std.mem;
 const os = std.os;
 const io = std.io;
@@ -193,7 +194,7 @@ pub fn forData(comptime Float: type, input_size: [2]usize, output_len: usize) ty
             try w.writeIntLittle(u32, input_size[1]);
 
             try w.writeIntLittle(u64, self.test_cases.items.len);
-            if (comptime std.Target.current.cpu.arch.endian() != .Little) {
+            if (comptime builtin.cpu.arch.endian() != .Little) {
                 @panic("TODO: Implement endian conversion!");
             }
             try w.writeAll(std.mem.sliceAsBytes(self.test_names.items));
@@ -221,7 +222,7 @@ pub fn forData(comptime Float: type, input_size: [2]usize, output_len: usize) ty
             if (w != input_size[0] or h != input_size[1]) return err.ImageSizeMismatch;
 
             var records: u64 = try r.readIntLittle(u64);
-            if (comptime std.Target.current.cpu.arch.endian() != .Little) {
+            if (comptime builtin.cpu.arch.endian() != .Little) {
                 @compileError("TODO: Implement endian conversion!");
             }
             try self.test_names.resize(records);

@@ -7,15 +7,15 @@
 // most functions support both scalars and @Vector with exceptions such as softmax
 
 const std = @import("std");
+const builtin = @import("builtin");
 const math = std.math;
 const meta = std.meta;
-const Optimized = std.builtin.FloatMode.Optimized;
 
 // PRIVATE UTILITIES:
 
 // helper function for constants to work with both vectors and scalars
 inline fn splat(comptime t: type, val: anytype) t {
-    @setFloatMode(Optimized);
+    @setFloatMode(.Optimized);
     comptime if (@typeInfo(t) == .Vector) {
         return @splat(@typeInfo(t).Vector.len, @as(@typeInfo(t).Vector.child, val));
     } else {
@@ -27,7 +27,7 @@ inline fn splat(comptime t: type, val: anytype) t {
 // d/dx σ(x) = σ(x) * (1 − σ(x))
 // z = σ(x)
 fn usualDerivZ(z: anytype) @TypeOf(z) {
-    @setFloatMode(Optimized);
+    @setFloatMode(.Optimized);
     const t = @TypeOf(z);
     return z * (splat(t, 1) - z);
 }
@@ -45,11 +45,11 @@ fn usualDerivZ(z: anytype) @TypeOf(z) {
 // binary
 pub const bin = struct {
     pub fn f(x: anytype) @TypeOf(x) {
-        @setFloatMode(Optimized);
+        @setFloatMode(.Optimized);
         return math.clamped(x, 0, 1);
     }
     pub fn deriv(x: anytype) @TypeOf(x) {
-        @setFloatMode(Optimized);
+        @setFloatMode(.Optimized);
         @compileError("This function is not continuously differentiable!");
     }
 };
@@ -57,13 +57,13 @@ pub const bin = struct {
 pub const sigmoid = struct {
     // σ(x) = 1 / (1 + e^−x)
     pub fn f(x: anytype) @TypeOf(x) {
-        @setFloatMode(Optimized);
+        @setFloatMode(.Optimized);
         const t = @TypeOf(x);
         return splat(t, 1) / (splat(t, 1) + @exp(-x));
     }
     // (e^x) / (e^x + 1)^2
     pub fn deriv(x: anytype) @TypeOf(x) {
-        @setFloatMode(Optimized);
+        @setFloatMode(.Optimized);
         const t = @TypeOf(x);
         const exp = @exp(-x);
         const exp_p1 = (splat(t, 1) + exp);
@@ -80,7 +80,7 @@ pub const softmax = struct {
     // Unstable:
     // σ(x) = e^x / Σ(e^x)
     // pub fn f(x: anytype) @TypeOf(x) {
-    //     @setFloatMode(Optimized);
+    //     @setFloatMode(.Optimized);
     //     const t = @TypeOf(x);
     //     comptime if (@typeInfo(t) != .Vector) @compileError("softmax accepts only Vectors");
     //     const exp = @exp(x);
@@ -103,19 +103,19 @@ pub const softmax = struct {
     // 𝝏σ(x) / 𝝏y = -σ(x) * σ(y)
     // z = σ(x)
     pub fn derivZY(z: anytype, y: anytype) @TypeOf(z) {
-        @setFloatMode(Optimized);
+        @setFloatMode(.Optimized);
         return -z * Self.f(y);
     }
 };
 
 pub const relu = struct {
     pub fn f(x: anytype) @TypeOf(x) {
-        @setFloatMode(Optimized);
+        @setFloatMode(.Optimized);
         return @maximum(splat(@TypeOf(x), 0), x);
     }
     // =1 when >0 or 0 otherwise
     pub fn deriv(x: anytype) @TypeOf(x) {
-        @setFloatMode(Optimized);
+        @setFloatMode(.Optimized);
         const t = @TypeOf(x);
         return @maximum(splat(t, 0), @minimum(splat(t, 1), @ceil(x)));
     }
@@ -126,12 +126,12 @@ pub const relu = struct {
 pub const relu_leaky = struct {
     const coef = 0.1;
     pub fn f(x: anytype) @TypeOf(x) {
-        @setFloatMode(Optimized);
+        @setFloatMode(.Optimized);
         return @maximum(x, x * splat(@TypeOf(x), coef));
     }
     // =1 when >0 or 0 otherwise
     pub fn deriv(x: anytype) @TypeOf(x) {
-        @setFloatMode(Optimized);
+        @setFloatMode(.Optimized);
         const t = @TypeOf(x);
         return @maximum(splat(t, coef), @minimum(splat(t, 1), @ceil(x)));
     }
@@ -142,13 +142,13 @@ pub const relu_leaky = struct {
 pub const relu6 = struct {
     const max = 6;
     pub fn f(x: anytype) @TypeOf(x) {
-        @setFloatMode(Optimized);
+        @setFloatMode(.Optimized);
         const t = @TypeOf(x);
         return @maximum(splat(t, 0), @minimum(x, splat(t, max)));
     }
 
     pub fn deriv(x: anytype) @TypeOf(x) {
-        @setFloatMode(Optimized);
+        @setFloatMode(.Optimized);
         const t = @TypeOf(x);
         const div = 1.0 / @as(comptime_float, max);
         const nc = @ceil(splat(t, div) * x);
@@ -176,12 +176,12 @@ pub const none = struct {
 pub const absErr = struct {
     // answer = correct answer, predicted = output from nnet
     pub fn f(answer: anytype, predicted: anytype) @TypeOf(answer) {
-        @setFloatMode(Optimized);
+        @setFloatMode(.Optimized);
         return (answer - predicted);
     }
 
     pub fn deriv(answer: anytype, predicted: anytype) @TypeOf(answer) {
-        @setFloatMode(Optimized);
+        @setFloatMode(.Optimized);
         return (answer - predicted);
     }
 };
@@ -189,12 +189,12 @@ pub const absErr = struct {
 pub const squaredErr = struct {
     // answer = correct answer, predicted = output from nnet
     pub fn f(answer: anytype, predicted: anytype) @TypeOf(answer) {
-        @setFloatMode(Optimized);
+        @setFloatMode(.Optimized);
         return  (answer - predicted) * (answer - predicted);
     }
 
     pub fn deriv(answer: anytype, predicted: anytype) @TypeOf(answer) {
-        @setFloatMode(Optimized);
+        @setFloatMode(.Optimized);
         return splat(@TypeOf(answer), 2) * (answer - predicted);
     }
 };
@@ -202,7 +202,7 @@ pub const squaredErr = struct {
 pub const logLoss = struct {
     // answer = correct answer, predicted = output from nnet
     pub fn f(answer: anytype, predicted: anytype) @TypeOf(answer) {
-        @setFloatMode(Optimized);
+        @setFloatMode(.Optimized);
         const t = @TypeOf(answer);
         const ti = @typeInfo(t);
         const p = @minimum(@maximum(predicted, splat(t, 0.00001)), splat(t, 0.99999));
@@ -213,7 +213,7 @@ pub const logLoss = struct {
     }
 
     pub fn deriv(answer: anytype, predicted: anytype) @TypeOf(answer) {
-        @setFloatMode(Optimized);
+        @setFloatMode(.Optimized);
         const t = @TypeOf(answer);
         const ti = @typeInfo(t);
         const p = @minimum(@maximum(predicted, splat(t, 0.00001)), splat(t, 0.99999));

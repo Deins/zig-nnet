@@ -1,3 +1,4 @@
+data/*
 data/digits/Images/
 *.batch
 zig-cache/
@@ -10,3 +11,6 @@ zig-out/
 *.exe
 *.out
 *.pbd
+# exclude visual studio files, except json config 
+.vs
+!.vs/*.json

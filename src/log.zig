@@ -1,9 +1,10 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const ansi = @import("ansi_esc.zig");
 
 const Self = @This();
 pub const buff_size = 512;
-pub const log_level: std.log.Level = switch (std.builtin.mode) {
+pub const log_level: std.log.Level = switch (builtin.mode) {
     .Debug => .debug,
     .ReleaseSafe => .info,
     .ReleaseFast => .info,
@@ -53,27 +54,23 @@ pub fn log(
     }
 
     const color = switch (level) {
-        .emerg => ansi.style.bold ++ ansi.style.underline ++ ansi.style.fg.col256(214) ++ ansi.style.bg.col256(52),
-        .alert => ansi.style.bold ++ ansi.style.underline ++ ansi.style.fg.red,
-        .crit => ansi.style.bold ++ ansi.style.fg.red,
         .err => ansi.style.fg.red,
         .warn => "" ++ ansi.style.fg.col256(214),
-        .notice => ansi.style.bold,
         .info => "",
         .debug => comptime ansi.style.fg.col256(245) ++ ansi.style.italic,
     };
     //const scope_prefix = "(" ++ @tagName(scope) ++ "):\t";
     //const prefix = "[" ++ @tagName(level) ++ "] " ++ scope_prefix;
     const prefix = "";
-    const lock = outm.acquire();
+    outm.lock();
     const postfix = if (format.len > 1 and format[format.len - 1] < ' ') "" else "\n";
     out.print(color ++ prefix ++ format ++ ansi.style.reset ++ postfix, args) catch @panic("Can't write log!");
-    if (@enumToInt(level) <= @enumToInt(std.log.Level.notice)) flush() catch @panic("Can't flush log!");
-    lock.release();
+    if (@enumToInt(level) <= @enumToInt(std.log.Level.warn)) flush() catch @panic("Can't flush log!");
+    outm.unlock();
 }
 
 fn configure_console() void {
-    if (std.builtin.os.tag == .windows) {
+    if (builtin.os.tag == .windows) {
         // configure windows console - use utf8 and ascii VT100 escape sequences
         const win_con = struct {
             const CP_UTF8: u32 = 65001;

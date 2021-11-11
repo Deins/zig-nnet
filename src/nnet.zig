@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = std.mem;
 const math = std.math;
 const meta = std.meta;
@@ -69,7 +70,7 @@ pub fn typed(comptime val_t: type) type {
         // `out` can be void - activation will be done (if its not void) however un-activated output won't be stored and will be discarded
         // `out_activated` can be void - activation will be skipped
         pub fn forward(neurons: anytype, weights: anytype, next_activation: anytype, next_biases: anytype, out_activated: anytype) void {
-            @setFloatMode(std.builtin.FloatMode.Optimized);
+            @setFloatMode(.Optimized);
             // comptime checks
             const do_activate: bool = comptime ablk: {
                 if (@TypeOf(out_activated) != @TypeOf(void)) {
@@ -110,7 +111,7 @@ pub fn typed(comptime val_t: type) type {
         // }
 
         pub fn randomArray(rnd: *std.rand.Random, comptime t: type, comptime len: usize) [len]t {
-            @setFloatMode(std.builtin.FloatMode.Optimized);
+            @setFloatMode(.Optimized);
             var rv: [len]Float = undefined;
             const coef = 1 / @as(Float, len);
             for (rv) |*v| {
@@ -158,7 +159,7 @@ pub fn typed(comptime val_t: type) type {
         }
 
         pub fn assertFinite(v: anytype, msg: []const u8) void {
-            if (std.builtin.mode != .Debug and std.builtin.mode != .ReleaseSafe)
+            if (builtin.mode != .Debug and builtin.mode != .ReleaseSafe)
                 return;
             if (!isFinite(v)) {
                 std.debug.panic("Values aren't finite!\n{s}\n{}", .{ msg, v });

@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin =  @import("builtin");
 const mem = std.mem;
 const os = std.os;
 const debug = std.debug;
@@ -50,7 +51,7 @@ const NNet = struct {
     pub const input_len = sizes[0];
     pub const output_len = sizes[sizes.len - 1];
 
-    // activation functions 
+    // activation functions
     pub const a1 = nnet.func.relu_leaky;
     pub const a2 = nnet.func.relu_leaky;
     pub const a3 = nnet.func.softmax;
@@ -75,7 +76,7 @@ const NNet = struct {
         // merges training results for batch training
         //  derivatives are summed, call finalizeMerge() before applying to average them
         pub fn merge(self: *TrainResult, b: TrainResult) void {
-            @setFloatMode(std.builtin.FloatMode.Optimized);
+            @setFloatMode(.Optimized);
             if (b.test_cases == 0) return;
             if (self.test_cases == 0) {
                 self.* = b;
@@ -101,7 +102,7 @@ const NNet = struct {
         }
 
         pub fn average(self: *TrainResult) void {
-            @setFloatMode(std.builtin.FloatMode.Optimized);
+            @setFloatMode(.Optimized);
             std.debug.assert(self.test_cases >= 1);
             if (self.test_cases == 1) return;
             const n: Float = 1.0 / self.test_cases;
@@ -121,7 +122,7 @@ const NNet = struct {
             self.test_cases *= -1;
         }
 
-        pub fn print(self : *@This()) void {
+        pub fn print(self: *@This()) void {
             mlog.info("b1: {d:.2}", .{self.d_b1});
             mlog.info("b2: {d:.2}", .{self.d_b2});
             mlog.info("bo: {d:.2}", .{self.d_bo});
@@ -153,7 +154,7 @@ const NNet = struct {
     w2: [sizes[2]]@Vector(sizes[3], Float) = undefined,
 
     pub fn randomize(self: *Self, rnd: *std.rand.Random) void {
-        @setFloatMode(std.builtin.FloatMode.Optimized);
+        @setFloatMode(.Optimized);
         nnet.randomize(rnd, &self.w0);
         nnet.randomize(rnd, &self.w1);
         nnet.randomize(rnd, &self.w2);
@@ -172,7 +173,7 @@ const NNet = struct {
     }
 
     pub fn feedForward(self: *Self, input: *const @Vector(sizes[0], Float)) void {
-        @setFloatMode(std.builtin.FloatMode.Optimized);
+        @setFloatMode(.Optimized);
         self.h1 = input.*;
         // nnet.forward(self.i, self.w0, Self.a1, self.b1, void, &self.h1);
         nnet.forward(self.h1, self.w1, Self.a2, self.b2, &self.h2);
@@ -182,7 +183,7 @@ const NNet = struct {
 
     // train to get derivatives
     pub fn trainDeriv(self: *Self, test_case: TestCase, train_result: *TrainResult) void {
-        @setFloatMode(std.builtin.FloatMode.Optimized);
+        @setFloatMode(.Optimized);
         //var timer = try std.time.Timer.start();
         debug.assert(std.mem.len(test_case.input) == sizes[0]);
         self.feedForward(&test_case.input);
@@ -272,7 +273,7 @@ const NNet = struct {
     }
 
     pub fn learn(self: *Self, train_results: TrainResult, learn_rate: Float) void {
-        @setFloatMode(std.builtin.FloatMode.Optimized);
+        @setFloatMode(.Optimized);
         self.bo += train_results.d_bo * @splat(@typeInfo(@TypeOf(self.bo)).Vector.len, learn_rate);
         self.b2 += train_results.d_b2 * @splat(@typeInfo(@TypeOf(self.b2)).Vector.len, learn_rate);
         for (self.w1) |*w, nidx| {
@@ -338,8 +339,8 @@ pub fn doTest(alloc: *mem.Allocator) !void {
 
             if (out_dir) |od| {
                 var out_name_buf = [_]u8{0} ** 32;
-                const out_name = std.fmt.bufPrint(out_name_buf[0..], "{}/{d:.0}%_{}#.png", .{best, best_confidence*100, i}) catch unreachable;
-                in_dir.copyFile(td.getTestName(i), od, out_name, .{}) catch |err| mlog.err("Cant copy test output '{s}' err:{}", .{out_name, err});
+                const out_name = std.fmt.bufPrint(out_name_buf[0..], "{}/{d:.0}%_{}#.png", .{ best, best_confidence * 100, i }) catch unreachable;
+                in_dir.copyFile(td.getTestName(i), od, out_name, .{}) catch |err| mlog.err("Cant copy test output '{s}' err:{}", .{ out_name, err });
             }
 
             const test_name = td.test_names.items[i];
@@ -354,9 +355,9 @@ pub fn train(alloc: *mem.Allocator) !void {
     defer td.deinit();
     try td.load("./data/digits/train.csv", "./data/digits/Images/train/", "data/train.batch", false);
     const seed = 364123;
-    var rnd = std.rand.Sfc64.init(seed);
+    var rnd : std.rand.Random = std.rand.Sfc64.init(seed).random();
     const Trainer = @import("nnet_trainer.zig").forNet(NNet);
-    var trainer = Trainer.init(alloc, &rnd.random);
+    var trainer = Trainer.init(alloc, &rnd);
     trainer.batch_size = options.batch_size;
     trainer.workers = options.workers;
     trainer.learn_rate = options.learn_rate;
@@ -367,7 +368,7 @@ pub fn train(alloc: *mem.Allocator) !void {
         var in_file = std.fs.cwd().openFile(p, .{}) catch |err| debug.panic("Can't open nnet: '{s}' Error:{}", .{ p, err });
         defer in_file.close();
         bin_file.readFile(NNet, &net, &in_file) catch |err| debug.panic("Can't open nnet: '{s}' Error:{}", .{ p, err });
-    } else net.randomize(&rnd.random);
+    } else net.randomize(&rnd);
 
     // train
     var timer = try std.time.Timer.start();

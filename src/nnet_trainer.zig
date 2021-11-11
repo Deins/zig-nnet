@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = std.mem;
 const atomic = std.atomic;
 const maxInt = std.math.maxInt;
@@ -52,9 +53,9 @@ pub fn forNet(NNet: anytype) type {
             };
         }
 
-        fn worker(wq: *WorkQueue, inp_nnet: *NNet, tacc: *TestAccessor) void {
-            @setFloatMode(std.builtin.FloatMode.Optimized);
-            var net = inp_nnet;
+        export fn worker(wq: *WorkQueue, inp_nnet: *NNet, tacc: *TestAccessor) void {
+            @setFloatMode(.Optimized);
+            var net = inp_nnet.*;
             var r: NNet.TrainResult = .{};
             Futex.wait(&wq.next_input, WorkQueue.start, null) catch unreachable;
             var inputs : []u32 = wq.inputs;
@@ -70,10 +71,10 @@ pub fn forNet(NNet: anytype) type {
                     // no more inputs
                     if (r.test_cases > 0) {
                         // merge whats left of results
-                        var lock = wq.results_mutex.acquire();
+                        wq.results_mutex.lock();
                         wq.results.merge(r);
                         var total = wq.results.test_cases;
-                        lock.release();
+                        wq.results_mutex.unlock();
                         var total_i: u32 = @floatToInt(u32, total);
                         wq.results_done.store(total_i, .Release);
                         if (total_i == @intCast(u32, inputs.len)) {
@@ -94,14 +95,14 @@ pub fn forNet(NNet: anytype) type {
                         }
                     }
                     // prep for work
-                    net = inp_nnet; // copy fresh working copy
+                    net = inp_nnet.*; // copy fresh working copy
                     inputs = wq.inputs;
                 }
             }
         }
 
         pub fn trainEpoches(self: *Self, net: *NNet, test_accesor: *TestAccessor, epoches: u32) !void {
-            @setFloatMode(std.builtin.FloatMode.Optimized);
+            @setFloatMode(.Optimized);
             const workers: usize = @minimum(self.workers, self.batch_size);
             if (workers < 1 or workers > 1024) std.debug.panic("Invalid worker count: {}", .{workers});
             std.debug.print("Epoch {} started (batchsize: {}, threads: {})\n", .{ self.epoch_idx, self.batch_size, self.workers });
@@ -136,10 +137,9 @@ pub fn forNet(NNet: anytype) type {
                 var bb: usize = 0;
                 while (bb < test_len) : (bb += self.batch_size) {
                     const batch = shuffled[bb..@minimum(bb + self.batch_size, test_len)];
-                    var lock = wq.results_mutex.tryAcquire();
-                    if (lock) |l| {
+                    if (wq.results_mutex.tryLock()) {
                         wq.results = .{};
-                        l.release();
+                        wq.results_mutex.unlock();
                     } else @panic("Threading error: someone has grabbed results lock!");
                     wq.results_done.store(0, .Release);
                     wq.inputs = batch;
