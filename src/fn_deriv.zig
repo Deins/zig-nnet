@@ -16,11 +16,10 @@ const Optimized = std.builtin.FloatMode.Optimized;
 // helper function for constants to work with both vectors and scalars
 inline fn splat(comptime t: type, val: anytype) t {
     @setFloatMode(Optimized);
-    comptime if (@typeInfo(t) == .Vector) {
-        return @splat(val);
-    } else {
-        return val;
-    };
+    switch (@typeInfo(t)) {
+        .Vector => return @splat(val),
+        else => return val,
+    }
 }
 
 // WARNING: might not be applicable to all functions

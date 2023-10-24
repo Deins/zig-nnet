@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = std.mem;
 const math = std.math;
 const meta = std.meta;
@@ -113,8 +114,8 @@ pub fn typed(comptime val_t: type) type {
             @setFloatMode(std.builtin.FloatMode.Optimized);
             var rv: [len]Float = undefined;
             const coef = 1 / @as(Float, len);
-            for (rv) |*v| {
-                v.* = @as(Float, @floatCast(rnd.floatNorm(f64))) * coef;
+            for (rv, 0..) |_, rv_index| {
+                rv[rv_index] = @as(Float, @floatCast(rnd.floatNorm(f64))) * coef;
             }
             return rv;
         }
@@ -129,7 +130,7 @@ pub fn typed(comptime val_t: type) type {
             } else if (tinfo == .Array) {
                 const cinfo = @typeInfo(tinfo.Array.child);
                 if (cinfo == .Array or cinfo == .Vector) {
-                    for (out.*) |*o| {
+                    for (out) |*o| {
                         randomize(rnd, o);
                     }
                 } else {
@@ -158,7 +159,7 @@ pub fn typed(comptime val_t: type) type {
         }
 
         pub fn assertFinite(v: anytype, msg: []const u8) void {
-            if (std.builtin.mode != .Debug and std.builtin.mode != .ReleaseSafe)
+            if (builtin.mode != .Debug and builtin.mode != .ReleaseSafe)
                 return;
             if (!isFinite(v)) {
                 std.debug.panic("Values aren't finite!\n{s}\n{}", .{ msg, v });

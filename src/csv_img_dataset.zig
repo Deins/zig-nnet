@@ -30,13 +30,13 @@ pub fn forData(comptime Float: type, comptime input_size: [2]usize, comptime out
         arena: heap.ArenaAllocator,
         // arrays skip arena to be able to actually
         test_cases: std.ArrayList(TestCase),
-        test_names: std.ArrayList([max_name_len:0]u8),
+        test_names: std.ArrayList([max_name_len]u8),
 
         pub fn init(alloc: std.mem.Allocator) Self {
             return .{
                 .arena = heap.ArenaAllocator.init(alloc),
                 .test_cases = std.ArrayList(TestCase).init(alloc),
-                .test_names = std.ArrayList([max_name_len:0]u8).init(alloc),
+                .test_names = std.ArrayList([max_name_len]u8).init(alloc),
                 .accessor = .{ .grabFn = Self.getTest, .countFn = getLen },
             };
         }
@@ -94,7 +94,6 @@ pub fn forData(comptime Float: type, comptime input_size: [2]usize, comptime out
                 const tc = try self.test_cases.addOne();
                 const tn = try self.test_names.addOne();
                 std.mem.copy(u8, tn, first_token.field[0..@min(first_token.field.len, max_name_len)]);
-                tn[first_token.field.len] = 0;
                 if (cols > 1) {
                     if (try csv_tokenizer.next()) |tok| {
                         if (tok != .field) {

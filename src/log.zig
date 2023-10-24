@@ -4,7 +4,7 @@ const ansi = @import("ansi_esc.zig");
 
 const Self = @This();
 pub const buff_size = 512;
-pub const log_level: std.log.Level = switch (std.builtin.mode) {
+pub const log_level: std.log.Level = switch (builtin.mode) {
     .Debug => .debug,
     .ReleaseSafe => .info,
     .ReleaseFast => .info,

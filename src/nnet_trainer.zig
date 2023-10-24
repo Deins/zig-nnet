@@ -70,10 +70,10 @@ pub fn forNet(comptime NNet: anytype) type {
                     // no more inputs
                     if (r.test_cases > 0) {
                         // merge whats left of results
-                        var lock = wq.results_mutex.acquire();
+                        wq.results_mutex.lock();
                         wq.results.merge(r);
                         var total = wq.results.test_cases;
-                        lock.release();
+                        wq.results_mutex.unlock();
                         var total_i: u32 = @as(u32, @intFromFloat(total));
                         wq.results_done.store(total_i, .Release);
                         if (total_i == @as(u32, @intCast(inputs.len))) {

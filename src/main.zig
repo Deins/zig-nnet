@@ -91,16 +91,16 @@ const NNet = struct {
             self.loss += b.loss;
             self.test_cases += b.test_cases;
 
-            for (self.d_w0, 0..) |*w, nidx| {
-                w.* += b.d_w0[nidx];
+            for (self.d_w0, 0..) |_, nidx| {
+                self.d_w0[nidx] += b.d_w0[nidx];
             }
 
-            for (self.d_w1, 0..) |*w, nidx| {
-                w.* += b.d_w1[nidx];
+            for (self.d_w1, 0..) |_, nidx| {
+                self.d_w1[nidx] += b.d_w1[nidx];
             }
 
-            for (self.d_w2, 0..) |*w, nidx| {
-                w.* += b.d_w2[nidx];
+            for (self.d_w2, 0..) |_, nidx| {
+                self.d_w2[nidx] += b.d_w2[nidx];
             }
         }
 
@@ -111,16 +111,16 @@ const NNet = struct {
             const n: Float = 1.0 / self.test_cases;
             if (!std.math.isFinite(n)) debug.panic("Not finite: {} / {} = {}", .{ 1.0, self.test_cases, n });
             self.loss *= n;
-            for (self.d_w0) |*w| {
-                w.* *= @splat(n);
+            for (self.d_w0, 0..) |_, nidx| {
+                self.d_w0[nidx] *= @splat(n);
             }
 
-            for (self.d_w1) |*w| {
-                w.* *= @splat(n);
+            for (self.d_w1, 0..) |_, nidx| {
+                self.d_w1[nidx] *= @splat(n);
             }
 
-            for (self.d_w2) |*w| {
-                w.* *= @splat(n);
+            for (self.d_w2, 0..) |_, nidx| {
+                self.d_w2[nidx] *= @splat(n);
             }
             self.test_cases *= -1;
         }
@@ -188,7 +188,7 @@ const NNet = struct {
     pub fn trainDeriv(self: *Self, test_case: TestCase, train_result: *TrainResult) void {
         @setFloatMode(std.builtin.FloatMode.Optimized);
         //var timer = try std.time.Timer.start();
-        debug.assert(std.mem.len(test_case.input) == sizes[0]);
+        debug.assert(TestCase.input_len == sizes[0]);
         self.feedForward(&test_case.input);
 
         const predicted_confidence: Float = @reduce(.Max, self.out_activated);
