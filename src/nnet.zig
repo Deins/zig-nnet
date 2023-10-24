@@ -37,27 +37,27 @@ pub fn typed(comptime val_t: type) type {
             return struct {
                 pub const input_len = input_len_;
                 pub const output_len = output_len_;
-                input: @Vector(input_len, Float), 
-                answer: @Vector(output_len, Float) 
+                input: @Vector(input_len, Float),
+                answer: @Vector(output_len, Float),
             };
         }
 
-        pub fn TestAccessor(comptime test_case_t : type) type {
+        pub fn TestAccessor(comptime test_case_t: type) type {
             return struct {
                 const Self = @This();
                 countFn: fn (s: *Self) usize,
                 grabFn: fn (s: *Self, idx: usize) *const test_case_t,
                 freeFn: ?fn (s: *Self, tc: *const test_case_t) void = null,
-                
+
                 pub fn testCount(self: *Self) usize {
                     return self.countFn(self);
                 }
-                
+
                 // call freeTest to release data (for loaders that support it)
-                pub fn grabTest(self: *Self, idx: usize) * const test_case_t {
+                pub fn grabTest(self: *Self, idx: usize) *const test_case_t {
                     return self.grabFn(self, idx);
                 }
-            
+
                 pub fn freeTest(self: *Self, tc: *const test_case_t) void {
                     if (self.freeFn) |f| return f(self, tc);
                 }
@@ -94,7 +94,7 @@ pub fn typed(comptime val_t: type) type {
             var nidx: u32 = 0;
             var res = next_biases;
             while (nidx < nlen) : (nidx += 1) {
-                res += @splat(olen, neurons[nidx]) * weights[nidx];
+                res += @as(@Vector(olen, Float), @splat(neurons[nidx])) * weights[nidx];
             }
             if (do_activate) {
                 assertFinite(res, "feedforward: res");
@@ -104,9 +104,9 @@ pub fn typed(comptime val_t: type) type {
         }
 
         // d_oerr_o_na  = 𝝏err_total / 𝝏h  = how much Output error for {layer + 1} changes with respect to output (non activated)
-        //   
+        //
         // pub fn backpropHidden(d_oerr_o_na : anytype, ) void {
-            
+
         // }
 
         pub fn randomArray(rnd: *std.rand.Random, comptime t: type, comptime len: usize) [len]t {
@@ -114,7 +114,7 @@ pub fn typed(comptime val_t: type) type {
             var rv: [len]Float = undefined;
             const coef = 1 / @as(Float, len);
             for (rv) |*v| {
-                v.* = @floatCast(Float, rnd.floatNorm(f64)) * coef;
+                v.* = @as(Float, @floatCast(rnd.floatNorm(f64))) * coef;
             }
             return rv;
         }

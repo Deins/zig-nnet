@@ -50,7 +50,7 @@ const NNet = struct {
     pub const input_len = sizes[0];
     pub const output_len = sizes[sizes.len - 1];
 
-    // activation functions 
+    // activation functions
     pub const a1 = nnet.func.relu_leaky;
     pub const a2 = nnet.func.relu_leaky;
     pub const a3 = nnet.func.softmax;
@@ -68,9 +68,9 @@ const NNet = struct {
         d_b2: @Vector(sizes[2], Float) = std.mem.zeroes(@Vector(sizes[2], Float)),
         d_bo: @Vector(sizes[3], Float) = std.mem.zeroes(@Vector(sizes[3], Float)),
         // Backprop weight derivatives
-        d_w0: [sizes[0]]@Vector(sizes[1], Float) = [_]@Vector(sizes[1], Float){@splat(sizes[1], @as(Float, 0))} ** sizes[0],
-        d_w1: [sizes[1]]@Vector(sizes[2], Float) = [_]@Vector(sizes[2], Float){@splat(sizes[2], @as(Float, 0))} ** sizes[1],
-        d_w2: [sizes[2]]@Vector(sizes[3], Float) = [_]@Vector(sizes[3], Float){@splat(sizes[3], @as(Float, 0))} ** sizes[2],
+        d_w0: [sizes[0]]@Vector(sizes[1], Float) = @as(@Vector(sizes[1], Float), @splat(0)) ** sizes[0],
+        d_w1: [sizes[1]]@Vector(sizes[2], Float) = @as(@Vector(sizes[2], Float), @splat(0)) ** sizes[1],
+        d_w2: [sizes[2]]@Vector(sizes[3], Float) = @as(@Vector(sizes[3], Float), @splat(0)) ** sizes[2],
 
         // merges training results for batch training
         //  derivatives are summed, call finalizeMerge() before applying to average them
@@ -87,15 +87,15 @@ const NNet = struct {
             self.loss += b.loss;
             self.test_cases += b.test_cases;
 
-            for (self.d_w0) |*w, nidx| {
+            for (self.d_w0, 0..) |*w, nidx| {
                 w.* += b.d_w0[nidx];
             }
 
-            for (self.d_w1) |*w, nidx| {
+            for (self.d_w1, 0..) |*w, nidx| {
                 w.* += b.d_w1[nidx];
             }
 
-            for (self.d_w2) |*w, nidx| {
+            for (self.d_w2, 0..) |*w, nidx| {
                 w.* += b.d_w2[nidx];
             }
         }
@@ -108,20 +108,20 @@ const NNet = struct {
             if (!std.math.isFinite(n)) debug.panic("Not finite: {} / {} = {}", .{ 1.0, self.test_cases, n });
             self.loss *= n;
             for (self.d_w0) |*w| {
-                w.* *= @splat(@typeInfo(@TypeOf(w.*)).Vector.len, n);
+                w.* *= @splat(n);
             }
 
             for (self.d_w1) |*w| {
-                w.* *= @splat(@typeInfo(@TypeOf(w.*)).Vector.len, n);
+                w.* *= @splat(n);
             }
 
             for (self.d_w2) |*w| {
-                w.* *= @splat(@typeInfo(@TypeOf(w.*)).Vector.len, n);
+                w.* *= @splat(n);
             }
             self.test_cases *= -1;
         }
 
-        pub fn print(self : *@This()) void {
+        pub fn print(self: *@This()) void {
             mlog.info("b1: {d:.2}", .{self.d_b1});
             mlog.info("b2: {d:.2}", .{self.d_b2});
             mlog.info("bo: {d:.2}", .{self.d_bo});
@@ -160,9 +160,9 @@ const NNet = struct {
         // nnet.randomize(rnd, &self.b1);
         // nnet.randomize(rnd, &self.b2);
         // nnet.randomize(rnd, &self.bo);
-        self.b1 = @splat(sizes[1], @as(Float, 0.1));
-        self.b2 = @splat(sizes[2], @as(Float, 0.1));
-        self.bo = @splat(sizes[3], @as(Float, 0.1));
+        self.b1 = @splat(0.1);
+        self.b2 = @splat(0.1);
+        self.bo = @splat(0.1);
         //nnet.randomize(rnd, &self.b4);
         //self.bo = std.mem.zeroes(@TypeOf(self.bo));
 
@@ -223,10 +223,10 @@ const NNet = struct {
             const d_o_w = self.h2; // last hidden layer
             train_result.d_bo += d_oerr_o_na; // store result
             // iterate last hidden layer neurons and update its weights
-            for (self.w2) |_, nidx| {
+            for (self.w2, 0..) |_, nidx| {
                 // how much total error change with respect to the weights:
                 //      𝝏total_err / 𝝏w
-                const d_err_w = d_oerr_o_na * @splat(sizes[3], d_o_w[nidx]);
+                const d_err_w = d_oerr_o_na * @as(@Vector(sizes[3], Float), @splat(d_o_w[nidx]));
                 nnet.assertFinite(d_err_w, "backprop out: d_err_w");
                 train_result.d_w2[nidx] += d_err_w; // store result
             }
@@ -237,7 +237,7 @@ const NNet = struct {
             // how much total error changes with respect to output (activated) of hidden layer
             //      𝝏err_total / 𝝏h
             var d_err_h: @Vector(h_len, Float) = undefined;
-            for (self.w2) |w, nidx| {
+            for (self.w2, 0..) |w, nidx| {
                 // how much error of output (not activated) changes with respect to hidden layer output (activated)
                 //      𝝏err_o_na / 𝝏err_h
                 const d_err_o_na__err_h = d_oerr_o_na * w;
@@ -256,10 +256,10 @@ const NNet = struct {
                 const d_o_w = self.h1;
                 const d_tmp = d_err_h * d_h2_h2na;
                 train_result.d_b2 += d_tmp; // store result
-                for (self.w1) |_, nidx| {
+                for (self.w1, 0..) |_, nidx| {
                     // how much total error change with respect to the weights:
                     //      𝝏total_err / 𝝏w
-                    const d_err_w = d_tmp * @splat(h_len, d_o_w[nidx]);
+                    const d_err_w = d_tmp * @as(@Vector(h_len, Float), @splat(d_o_w[nidx]));
                     nnet.assertFinite(d_err_w, "backprop hidden: d_err_w");
                     // store result
                     train_result.d_w1[nidx] += d_err_w;
@@ -273,13 +273,13 @@ const NNet = struct {
 
     pub fn learn(self: *Self, train_results: TrainResult, learn_rate: Float) void {
         @setFloatMode(std.builtin.FloatMode.Optimized);
-        self.bo += train_results.d_bo * @splat(@typeInfo(@TypeOf(self.bo)).Vector.len, learn_rate);
-        self.b2 += train_results.d_b2 * @splat(@typeInfo(@TypeOf(self.b2)).Vector.len, learn_rate);
-        for (self.w1) |*w, nidx| {
-            w.* -= train_results.d_w1[nidx] * @splat(@typeInfo(@TypeOf(w.*)).Vector.len, learn_rate);
+        self.bo += train_results.d_bo * @as(@Vector(@typeInfo(@TypeOf(self.bo)).Vector.len, Float), @splat(learn_rate));
+        self.b2 += train_results.d_b2 * @as(@Vector(@typeInfo(@TypeOf(self.b2)).Vector.len, Float), @splat(learn_rate));
+        for (self.w1, 0..) |*w, nidx| {
+            w.* -= train_results.d_w1[nidx] * @as(@Vector(@typeInfo(@TypeOf(w.*)).Vector.len, Float), @splat(learn_rate));
         }
-        for (self.w2) |*w, nidx| {
-            w.* -= train_results.d_w2[nidx] * @splat(@typeInfo(@TypeOf(w.*)).Vector.len, learn_rate);
+        for (self.w2, 0..) |*w, nidx| {
+            w.* -= train_results.d_w2[nidx] * @as(@Vector(@typeInfo(@TypeOf(w.*)).Vector.len, Float), @splat(learn_rate));
         }
     }
 };
@@ -324,27 +324,27 @@ pub fn doTest(alloc: *mem.Allocator) !void {
         const writer = of.writer();
         try writer.print("filename,label\n", .{});
 
-        for (td.test_cases.items) |*test_case, i| {
+        for (td.test_cases.items, 0..) |*test_case, i| {
             net.feedForward(&test_case.input);
             var best: u8 = 0;
             var best_confidence: Float = 0;
             var ti: usize = 0;
             while (ti < 10) : (ti += 1) {
                 if (best_confidence < net.out_activated[ti]) {
-                    best = @intCast(u8, ti);
+                    best = @as(u8, @intCast(ti));
                     best_confidence = net.out_activated[ti];
                 }
             }
 
             if (out_dir) |od| {
                 var out_name_buf = [_]u8{0} ** 32;
-                const out_name = std.fmt.bufPrint(out_name_buf[0..], "{}/{d:.0}%_{}#.png", .{best, best_confidence*100, i}) catch unreachable;
-                in_dir.copyFile(td.getTestName(i), od, out_name, .{}) catch |err| mlog.err("Cant copy test output '{s}' err:{}", .{out_name, err});
+                const out_name = std.fmt.bufPrint(out_name_buf[0..], "{}/{d:.0}%_{}#.png", .{ best, best_confidence * 100, i }) catch unreachable;
+                in_dir.copyFile(td.getTestName(i), od, out_name, .{}) catch |err| mlog.err("Cant copy test output '{s}' err:{}", .{ out_name, err });
             }
 
             const test_name = td.test_names.items[i];
             try of.writer().print("{s},{}\n", .{ test_name, best });
-            mlog.info("{s} , {} , {d:.1}%\t[{d:.2}]", .{ test_name, best, best_confidence * 100.0, net.out_activated * @splat(10, @as(Float, 100)) });
+            mlog.info("{s} , {} , {d:.1}%\t[{d:.2}]", .{ test_name, best, best_confidence * 100.0, net.out_activated * @as(@Vector(10, Float), @splat(100)) });
         }
     }
 }
@@ -371,8 +371,8 @@ pub fn train(alloc: *mem.Allocator) !void {
 
     // train
     var timer = try std.time.Timer.start();
-    try trainer.trainEpoches(&net, &td.accessor, @intCast(u32, options.epoches));
-    mlog.notice("\nTotal train time: {}\n", .{fmtDuration(timer.lap())});
+    try trainer.trainEpoches(&net, &td.accessor, @as(u32, @intCast(options.epoches)));
+    mlog.info("\nTotal train time: {}\n", .{fmtDuration(timer.lap())});
 
     // save net
     if (options.save) |p| {
@@ -389,15 +389,21 @@ pub fn main() !void {
 
     options.workers = try std.Thread.getCpuCount();
     var galloc = std.heap.GeneralPurposeAllocator(.{}){};
-    defer if (galloc.deinit()) {
-        debug.panic("GeneralPurposeAllocator had leaks!", .{});
-    };
-    var lalloc = std.heap.LoggingAllocator(std.log.Level.debug, std.log.Level.info).init(&galloc.allocator);
-    var alloc = &lalloc.allocator;
+    defer {
+        switch (galloc.deinit()) {
+            .ok => {},
+            .leak => std.log.err("GPA allocator: Memory leak detected", .{}),
+        }
+    }
+    var lalloc = std.heap.LoggingAllocator(
+        std.log.Level.debug,
+        std.log.Level.info,
+    ).init(galloc.allocator());
+    var alloc = &lalloc.allocator();
 
     { // ARGS
-        const args = (try std.process.argsAlloc(&galloc.allocator))[1..]; // skip first arg as it points to current executable
-        defer std.process.argsFree(&galloc.allocator, args);
+        const args = (try std.process.argsAlloc(galloc.allocator()))[1..]; // skip first arg as it points to current executable
+        defer std.process.argsFree(galloc.allocator(), args);
         const printHelp = struct {
             pub fn print() void {
                 var cwd_path_buff: [512]u8 = undefined;
@@ -420,63 +426,63 @@ pub fn main() !void {
 
         // commands
         var skip: i32 = 0;
-        for (args) |argv, ai| {
+        for (args, 0..) |argv, ai| {
             if (skip > 0) {
                 skip -= 1;
                 continue;
             }
-            if (std.cstr.cmp(argv, "--workers") == 0) {
+            if (std.mem.eql(u8, argv, "--workers")) {
                 if (ai + 1 >= args.len) std.debug.panic("Argument '{s}' needs to be followed by value!", .{argv});
                 options.workers = try std.fmt.parseUnsigned(usize, args[ai + 1], 0);
                 skip = 1;
-            } else if (std.cstr.cmp(argv, "--epoches") == 0) {
+            } else if (std.mem.eql(u8, argv, "--epoches")) {
                 if (ai + 1 >= args.len) std.debug.panic("Argument '{s}' needs to be followed by value!", .{argv});
                 options.epoches = try std.fmt.parseUnsigned(usize, args[ai + 1], 0);
                 skip = 1;
-            } else if (std.cstr.cmp(argv, "--learn-rate") == 0) {
+            } else if (std.mem.eql(u8, argv, "--learn-rate")) {
                 if (ai + 1 >= args.len) std.debug.panic("Argument '{s}' needs to be followed by value!", .{argv});
                 options.learn_rate = try std.fmt.parseFloat(Float, args[ai + 1]);
                 skip = 1;
-            } else if (std.cstr.cmp(argv, "--load") == 0) {
+            } else if (std.mem.eql(u8, argv, "--load")) {
                 if (ai + 1 >= args.len) std.debug.panic("Argument '{s}' needs to be followed by path!", .{argv});
                 options.load = args[ai + 1];
                 skip = 1;
-            } else if (std.cstr.cmp(argv, "--save") == 0) {
+            } else if (std.mem.eql(u8, argv, "--save")) {
                 if (ai + 1 >= args.len) std.debug.panic("Argument '{s}' needs to be followed by path!", .{argv});
                 options.save = args[ai + 1];
                 skip = 1;
-            } else if (std.cstr.cmp(argv, "--batch-size") == 0) {
+            } else if (std.mem.eql(u8, argv, "--batch-size")) {
                 if (ai + 1 >= args.len) std.debug.panic("Argument '{s}' needs to be followed by path!", .{argv});
                 options.batch_size = try std.fmt.parseUnsigned(usize, args[ai + 1], 0);
                 skip = 1;
-            } else if (std.cstr.cmp(argv, "--epoches") == 0) {
+            } else if (std.mem.eql(u8, argv, "--epoches")) {
                 if (ai + 1 >= args.len) std.debug.panic("Argument '{s}' needs to be followed by path!", .{argv});
                 options.epoches = try std.fmt.parseUnsigned(usize, args[ai + 1], 0);
                 skip = 1;
-            } else if (std.cstr.cmp(argv, "--img-dir-out") == 0) {
+            } else if (std.mem.eql(u8, argv, "--img-dir-out")) {
                 if (ai + 1 >= args.len) std.debug.panic("Argument '{s}' needs to be followed by path!", .{argv});
                 options.img_dir_out = args[ai + 1];
                 skip = 1;
-            } else if (std.cstr.cmp(argv, "preprocess") == 0) {
+            } else if (std.mem.eql(u8, argv, "preprocess")) {
                 {
-                    mlog.notice("Preprocessing training data...", .{});
+                    mlog.info("Preprocessing training data...", .{});
                     var td = Dataset.init(alloc);
                     defer td.deinit();
                     td.load("./data/digits/train.csv", "./data/digits/Images/train/", "data/train.batch", true) catch |err| debug.panic("Error: {}", .{err});
                     td.saveBatch("data/train.batch") catch |err| debug.panic("Error: {}", .{err});
                 }
                 {
-                    mlog.notice("Preprocessing test data...", .{});
+                    mlog.info("Preprocessing test data...", .{});
                     var td = Dataset.init(alloc);
                     defer td.deinit();
                     td.load("./data/digits/test.csv", "./data/digits/Images/test/", "data/test.batch", true) catch |err| debug.panic("Error: {}", .{err});
                     td.saveBatch("data/test.batch") catch |err| debug.panic("Error: {}", .{err});
                 }
-            } else if (std.cstr.cmp(argv, "train") == 0) {
+            } else if (std.mem.eql(u8, argv, "train")) {
                 train(alloc) catch |err| debug.panic("Error: {}", .{err});
-            } else if (std.cstr.cmp(argv, "test") == 0) {
+            } else if (std.mem.eql(u8, argv, "test")) {
                 try doTest(alloc);
-            } else if (std.cstr.cmp(argv, "help") == 0) {
+            } else if (std.mem.eql(u8, argv, "help")) {
                 printHelp();
             } else std.debug.panic("Unknown argument: {s}", .{argv});
         }
