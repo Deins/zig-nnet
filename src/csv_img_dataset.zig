@@ -100,6 +100,7 @@ pub fn forData(comptime Float: type, comptime input_size: [2]usize, comptime out
                             log.err("Expected field in csv, got end of line!", .{});
                             return error.MissingValueCSV;
                         }
+                        // Label is a digit
                         const digit: u8 = std.fmt.parseInt(u8, tok.field, 10) catch |e| {
                             log.err("CSV can't parse nubmer: `{s}` err: {}", .{ first_token.field, e });
                             return error.ExpectedNumberCSV;
