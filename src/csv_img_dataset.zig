@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = std.mem;
 const os = std.os;
 const io = std.io;
@@ -67,7 +68,7 @@ pub fn forData(comptime Float: type, comptime input_size: [2]usize, comptime out
             const buffer = try self.arena.child_allocator.alloc(u8, try file.getEndPos());
             defer self.arena.child_allocator.free(buffer);
 
-            const csv_tokenizer = &try csv.CsvTokenizer(std.fs.File.Reader).init(file.reader(), buffer, .{});
+            var csv_tokenizer = try csv.CsvTokenizer(std.fs.File.Reader).init(file.reader(), buffer, .{});
             const aprox_capacity = buffer.len / 10;
             try self.test_cases.ensureTotalCapacity(aprox_capacity);
             try self.test_names.ensureTotalCapacity(aprox_capacity);
@@ -89,8 +90,7 @@ pub fn forData(comptime Float: type, comptime input_size: [2]usize, comptime out
                 log.warn("Dataset uses only 1 or 2 columns! cols: {}", .{cols});
             }
 
-            var i: i32 = 0;
-            while (try csv_tokenizer.next()) |first_token| : (i += 1) {
+            while (try csv_tokenizer.next()) |first_token| {
                 const tc = try self.test_cases.addOne();
                 const tn = try self.test_names.addOne();
                 std.mem.copy(u8, tn, first_token.field[0..@min(first_token.field.len, max_name_len)]);
@@ -98,14 +98,14 @@ pub fn forData(comptime Float: type, comptime input_size: [2]usize, comptime out
                 if (cols > 1) {
                     if (try csv_tokenizer.next()) |tok| {
                         if (tok != .field) {
-                            log.alert("Expected field in csv, got end of line!", .{});
+                            log.err("Expected field in csv, got end of line!", .{});
                             return error.MissingValueCSV;
                         }
                         const digit: u8 = std.fmt.parseInt(u8, tok.field, 10) catch |e| {
-                            log.alert("CSV can't parse nubmer: `{s}` err: {}", .{ first_token.field, e });
+                            log.err("CSV can't parse nubmer: `{s}` err: {}", .{ first_token.field, e });
                             return error.ExpectedNumberCSV;
                         };
-                        var answer_vec: []Float = @splat(0);
+                        var answer_vec: @Vector(TestCase.output_len, Float) = @splat(0);
                         answer_vec[digit] = 1.0;
                         tc.*.answer = answer_vec;
                     } else return err.CsvMissingColumn;
@@ -127,7 +127,8 @@ pub fn forData(comptime Float: type, comptime input_size: [2]usize, comptime out
 
             var tmp_alloc_buff = try self.arena.child_allocator.alloc(u8, input_size[0] * input_size[1] * 4 + 1024);
             defer self.arena.child_allocator.free(tmp_alloc_buff);
-            var tmp_alloc = heap.FixedBufferAllocator.init(tmp_alloc_buff);
+            var tmp_fba = heap.FixedBufferAllocator.init(tmp_alloc_buff);
+            var tmb_alloc = tmp_fba.allocator();
 
             for (self.test_cases.items, 0..) |_, i| {
                 if (i % prcent_mod == 0) {
@@ -145,8 +146,8 @@ pub fn forData(comptime Float: type, comptime input_size: [2]usize, comptime out
                     std.debug.panic("Error opening image '{s}': {}", .{ path, err });
                 };
                 defer file.close();
-                const buffer = try tmp_alloc.allocator.alloc(u8, try file.getEndPos());
-                defer tmp_alloc.allocator.free(buffer);
+                const buffer = try tmb_alloc.alloc(u8, try file.getEndPos());
+                defer tmb_alloc.free(buffer);
                 const read_len = try file.readAll(buffer);
                 if (read_len != buffer.len) std.debug.panic("Read different amount of bytes than in file!", .{});
 
@@ -193,7 +194,7 @@ pub fn forData(comptime Float: type, comptime input_size: [2]usize, comptime out
             try w.writeIntLittle(u32, input_size[1]);
 
             try w.writeIntLittle(u64, self.test_cases.items.len);
-            if (comptime std.Target.current.cpu.arch.endian() != .Little) {
+            if (comptime builtin.cpu.arch.endian() != .Little) {
                 @panic("TODO: Implement endian conversion!");
             }
             try w.writeAll(std.mem.sliceAsBytes(self.test_names.items));
@@ -221,7 +222,7 @@ pub fn forData(comptime Float: type, comptime input_size: [2]usize, comptime out
             if (w != input_size[0] or h != input_size[1]) return err.ImageSizeMismatch;
 
             var records: u64 = try r.readIntLittle(u64);
-            if (comptime std.Target.current.cpu.arch.endian() != .Little) {
+            if (comptime builtin.cpu.arch.endian() != .Little) {
                 @compileError("TODO: Implement endian conversion!");
             }
             try self.test_names.resize(records);

@@ -72,9 +72,9 @@ const NNet = struct {
         d_b2: @Vector(sizes[2], Float) = std.mem.zeroes(@Vector(sizes[2], Float)),
         d_bo: @Vector(sizes[3], Float) = std.mem.zeroes(@Vector(sizes[3], Float)),
         // Backprop weight derivatives
-        d_w0: [sizes[0]]@Vector(sizes[1], Float) = @as(@Vector(sizes[1], Float), @splat(0)) ** sizes[0],
-        d_w1: [sizes[1]]@Vector(sizes[2], Float) = @as(@Vector(sizes[2], Float), @splat(0)) ** sizes[1],
-        d_w2: [sizes[2]]@Vector(sizes[3], Float) = @as(@Vector(sizes[3], Float), @splat(0)) ** sizes[2],
+        d_w0: [sizes[0]]@Vector(sizes[1], Float) = [_]@Vector(sizes[1], Float){@splat(0)} ** sizes[0],
+        d_w1: [sizes[1]]@Vector(sizes[2], Float) = [_]@Vector(sizes[2], Float){@splat(0)} ** sizes[1],
+        d_w2: [sizes[2]]@Vector(sizes[3], Float) = [_]@Vector(sizes[3], Float){@splat(0)} ** sizes[2],
 
         // merges training results for batch training
         //  derivatives are summed, call finalizeMerge() before applying to average them
@@ -156,7 +156,7 @@ const NNet = struct {
     w1: [sizes[1]]@Vector(sizes[2], Float) = undefined,
     w2: [sizes[2]]@Vector(sizes[3], Float) = undefined,
 
-    pub fn randomize(self: *Self, rnd: *std.rand.Random) void {
+    pub fn randomize(self: *Self, rnd: std.rand.Random) void {
         @setFloatMode(std.builtin.FloatMode.Optimized);
         nnet.randomize(rnd, &self.w0);
         nnet.randomize(rnd, &self.w1);
@@ -279,11 +279,11 @@ const NNet = struct {
         @setFloatMode(std.builtin.FloatMode.Optimized);
         self.bo += train_results.d_bo * @as(@Vector(@typeInfo(@TypeOf(self.bo)).Vector.len, Float), @splat(learn_rate));
         self.b2 += train_results.d_b2 * @as(@Vector(@typeInfo(@TypeOf(self.b2)).Vector.len, Float), @splat(learn_rate));
-        for (self.w1, 0..) |*w, nidx| {
-            w.* -= train_results.d_w1[nidx] * @as(@Vector(@typeInfo(@TypeOf(w.*)).Vector.len, Float), @splat(learn_rate));
+        for (self.w1, 0..) |w, nidx| {
+            self.w1[nidx] -= train_results.d_w1[nidx] * @as(@Vector(@typeInfo(@TypeOf(w)).Vector.len, Float), @splat(learn_rate));
         }
-        for (self.w2, 0..) |*w, nidx| {
-            w.* -= train_results.d_w2[nidx] * @as(@Vector(@typeInfo(@TypeOf(w.*)).Vector.len, Float), @splat(learn_rate));
+        for (self.w2, 0..) |w, nidx| {
+            self.w2[nidx] -= train_results.d_w2[nidx] * @as(@Vector(@typeInfo(@TypeOf(w)).Vector.len, Float), @splat(learn_rate));
         }
     }
 };
@@ -359,8 +359,9 @@ pub fn train(alloc: mem.Allocator) !void {
     try td.load("./data/digits/train.csv", "./data/digits/Images/train/", "data/train.batch", false);
     const seed = 364123;
     var rnd = std.rand.Sfc64.init(seed);
+    var random_instance = rnd.random();
     const Trainer = @import("nnet_trainer.zig").forNet(NNet);
-    var trainer = Trainer.init(alloc, &rnd.random);
+    var trainer = Trainer.init(alloc, random_instance);
     trainer.batch_size = options.batch_size;
     trainer.workers = options.workers;
     trainer.learn_rate = options.learn_rate;
@@ -371,7 +372,7 @@ pub fn train(alloc: mem.Allocator) !void {
         var in_file = std.fs.cwd().openFile(p, .{}) catch |err| debug.panic("Can't open nnet: '{s}' Error:{}", .{ p, err });
         defer in_file.close();
         bin_file.readFile(NNet, &net, &in_file) catch |err| debug.panic("Can't open nnet: '{s}' Error:{}", .{ p, err });
-    } else net.randomize(&rnd.random);
+    } else net.randomize(random_instance);
 
     // train
     var timer = try std.time.Timer.start();

@@ -1,0 +1,10 @@
+.{
+    .name = "zig-nnet",
+    .version = "0.1.0",
+    .dependencies = .{
+        .csv = .{
+            .url = "https://github.com/beho/zig-csv/archive/e464bcce86798515937f3a40b897c5717466031c.tar.gz",
+            .hash = "1220ea2c5533abcc82988b93301a912c4b63357e79d9368a03241155114d2ba777fe",
+        },
+    },
+}

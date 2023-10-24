@@ -38,14 +38,14 @@ pub fn forNet(comptime NNet: anytype) type {
             results: NNet.TrainResult = .{},
         };
         alloc: mem.Allocator,
-        rnd: *std.rand.Random,
+        rnd: std.rand.Random,
         batch_size: usize = 4,
         learn_rate: Float = 0.1,
         epoch_idx: usize = 0,
         workers: usize = 8,
         // private - used to coordinate threads
 
-        pub fn init(alloc: mem.Allocator, rnd: *std.rand.Random) Self {
+        pub fn init(alloc: mem.Allocator, rnd: std.rand.Random) Self {
             return .{
                 .alloc = alloc,
                 .rnd = rnd,
@@ -56,7 +56,7 @@ pub fn forNet(comptime NNet: anytype) type {
             @setFloatMode(std.builtin.FloatMode.Optimized);
             var net = inp_nnet;
             var r: NNet.TrainResult = .{};
-            Futex.wait(&wq.next_input, WorkQueue.start, null) catch unreachable;
+            Futex.wait(&wq.next_input, WorkQueue.start);
             var inputs: []u32 = wq.inputs;
             main_worker_loop: while (true) {
                 var input_idx = wq.next_input.fetchAdd(1, atomic.Ordering.AcqRel);
@@ -88,7 +88,7 @@ pub fn forNet(comptime NNet: anytype) type {
                             if (inp == WorkQueue.stop) {
                                 break :main_worker_loop; // all done - exit
                             }
-                            Futex.wait(&wq.next_input, inp, null) catch unreachable;
+                            Futex.wait(&wq.next_input, inp);
                             if (input_idx > wq.next_input.load(atomic.Ordering.Acquire)) break;
                             inp = wq.next_input.load(.Acquire);
                         }
@@ -138,10 +138,9 @@ pub fn forNet(comptime NNet: anytype) type {
                 var bb: usize = 0;
                 while (bb < test_len) : (bb += self.batch_size) {
                     const batch = shuffled[bb..@min(bb + self.batch_size, test_len)];
-                    var lock = wq.results_mutex.tryAcquire();
-                    if (lock) |l| {
+                    if (wq.results_mutex.tryLock()) {
+                        defer wq.results_mutex.unlock();
                         wq.results = .{};
-                        l.release();
                     } else @panic("Threading error: someone has grabbed results lock!");
                     wq.results_done.store(0, .Release);
                     wq.inputs = batch;
@@ -150,7 +149,7 @@ pub fn forNet(comptime NNet: anytype) type {
                     // wait for result
                     var expect_res: u32 = 0;
                     while (expect_res != batch.len) {
-                        Futex.wait(&wq.results_done, expect_res, null) catch unreachable;
+                        Futex.wait(&wq.results_done, expect_res);
                         expect_res = wq.results_done.load(.Acquire);
                         //log.info("Results: {}", .{expect_res});
                     }
@@ -161,7 +160,7 @@ pub fn forNet(comptime NNet: anytype) type {
                     //wq.results.average();
                     net.learn(wq.results, self.learn_rate);
                     if (!std.math.isFinite(wq.results.loss)) {
-                        log.alert("Batch {}# loss not finite! {}", .{ bb, wq.results.loss });
+                        log.err("Batch {}# loss not finite! {}", .{ bb, wq.results.loss });
                         //wq.results.print();
                         std.os.abort();
                     }

@@ -12,13 +12,10 @@ pub fn build(b: *Builder) !void {
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
     const optimize = b.standardOptimizeOption(.{});
 
-    // create a module to be used internally.
-    var csv_module = b.createModule(.{
-        .source_file = .{ .path = "deps/zig-csv/src/main.zig" },
+    const csv_dep = b.dependency("csv", .{
+        .target = target,
+        .optimize = optimize,
     });
-    // register the module so it can be referenced
-    // using the package manager.
-    try b.modules.put(b.dupe("csv"), csv_module);
 
     const exe = b.addExecutable(.{
         .name = "nn",
@@ -29,9 +26,10 @@ pub fn build(b: *Builder) !void {
     // For the C-libraries
     exe.linkLibC();
 
-    const build_options = b.addOptions();
-    build_options.addOption(?[]const u8, "--no-rosegment", null); // for debug symbols to work better: https://github.com/ziglang/zig/issues/1501
-    exe.addOptions("build_options", build_options);
+    // TODO: Decide if we need these
+    // const build_options = b.addOptions();
+    // build_options.addOption(?[]const u8, "--no-rosegment", null); // for debug symbols to work better: https://github.com/ziglang/zig/issues/1501
+    // exe.addOptions("build_options", build_options);
 
     exe.addCSourceFile(.{
         .file = std.build.LazyPath.relative("deps/stb.c"),
@@ -39,7 +37,7 @@ pub fn build(b: *Builder) !void {
     });
     exe.addIncludePath(.{ .path = "deps/stb/" });
     // Make the `csv` module available to be imported via `@import("csv")`
-    exe.addModule("csv", csv_module);
+    exe.addModule("csv", csv_dep.module("zig-csv"));
 
     b.installArtifact(exe);
 

@@ -109,7 +109,7 @@ pub fn typed(comptime val_t: type) type {
 
         // }
 
-        pub fn randomArray(rnd: *std.rand.Random, comptime t: type, comptime len: usize) [len]t {
+        pub fn randomArray(rnd: std.rand.Random, comptime t: type, comptime len: usize) [len]t {
             @setFloatMode(std.builtin.FloatMode.Optimized);
             var rv: [len]Float = undefined;
             const coef = 1 / @as(Float, len);
@@ -119,7 +119,7 @@ pub fn typed(comptime val_t: type) type {
             return rv;
         }
 
-        pub fn randomize(rnd: *std.rand.Random, out: anytype) void {
+        pub fn randomize(rnd: std.rand.Random, out: anytype) void {
             comptime if (@typeInfo(@TypeOf(out)) != .Pointer)
                 @compileError("out must be pointer!");
             const tinfo = @typeInfo(@TypeOf(out.*));
