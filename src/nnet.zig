@@ -45,9 +45,9 @@ pub fn typed(comptime val_t: type) type {
         pub fn TestAccessor(comptime test_case_t: type) type {
             return struct {
                 const Self = @This();
-                countFn: fn (s: *Self) usize,
-                grabFn: fn (s: *Self, idx: usize) *const test_case_t,
-                freeFn: ?fn (s: *Self, tc: *const test_case_t) void = null,
+                countFn: *const fn (s: *Self) usize,
+                grabFn: *const fn (s: *Self, idx: usize) *const test_case_t,
+                freeFn: ?*const fn (s: *Self, tc: *const test_case_t) void = null,
 
                 pub fn testCount(self: *Self) usize {
                     return self.countFn(self);

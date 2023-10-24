@@ -10,7 +10,11 @@ const bin_file = @import("bin_file.zig");
 
 const Float = f32;
 
-const Dataset = @import("csv_img_dataset.zig").forData(Float, .{ 28, 28 }, 10);
+const Dataset = @import("csv_img_dataset.zig").forData(
+    Float,
+    [2]usize{ 28, 28 },
+    @as(comptime_int, 10),
+);
 const TestCase = Dataset.TestCase;
 const nnet = @import("nnet.zig").typed(Float);
 const LogCtx = @import("log.zig");
@@ -284,7 +288,7 @@ const NNet = struct {
     }
 };
 
-pub fn doTest(alloc: *mem.Allocator) !void {
+pub fn doTest(alloc: mem.Allocator) !void {
     var net: NNet = undefined;
     if (options.load) |p| {
         var in_file = std.fs.cwd().openFile(p, .{}) catch |err| debug.panic("Can't open nnet: '{s}' Error:{}", .{ p, err });
@@ -349,7 +353,7 @@ pub fn doTest(alloc: *mem.Allocator) !void {
     }
 }
 
-pub fn train(alloc: *mem.Allocator) !void {
+pub fn train(alloc: mem.Allocator) !void {
     var td = Dataset.init(alloc);
     defer td.deinit();
     try td.load("./data/digits/train.csv", "./data/digits/Images/train/", "data/train.batch", false);
@@ -399,7 +403,7 @@ pub fn main() !void {
         std.log.Level.debug,
         std.log.Level.info,
     ).init(galloc.allocator());
-    var alloc = &lalloc.allocator();
+    var alloc = lalloc.allocator();
 
     { // ARGS
         const args = (try std.process.argsAlloc(galloc.allocator()))[1..]; // skip first arg as it points to current executable

@@ -20,7 +20,7 @@ const Futex = std.Thread.Futex;
 const nnet = @import("nnet.zig");
 
 // multithreaded nnet trainer
-pub fn forNet(NNet: anytype) type {
+pub fn forNet(comptime NNet: anytype) type {
     return struct {
         const Self = @This();
         pub const Float = NNet.ValType;
@@ -37,7 +37,7 @@ pub fn forNet(NNet: anytype) type {
             results_mutex: std.Thread.Mutex = .{},
             results: NNet.TrainResult = .{},
         };
-        alloc: *mem.Allocator,
+        alloc: mem.Allocator,
         rnd: *std.rand.Random,
         batch_size: usize = 4,
         learn_rate: Float = 0.1,
@@ -45,7 +45,7 @@ pub fn forNet(NNet: anytype) type {
         workers: usize = 8,
         // private - used to coordinate threads
 
-        pub fn init(alloc: *mem.Allocator, rnd: *std.rand.Random) Self {
+        pub fn init(alloc: mem.Allocator, rnd: *std.rand.Random) Self {
             return .{
                 .alloc = alloc,
                 .rnd = rnd,

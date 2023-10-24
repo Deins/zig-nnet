@@ -31,7 +31,7 @@ pub fn forData(comptime Float: type, comptime input_size: [2]usize, comptime out
         test_cases: std.ArrayList(TestCase),
         test_names: std.ArrayList([max_name_len:0]u8),
 
-        pub fn init(alloc: *std.mem.Allocator) Self {
+        pub fn init(alloc: std.mem.Allocator) Self {
             return .{
                 .arena = heap.ArenaAllocator.init(alloc),
                 .test_cases = std.ArrayList(TestCase).init(alloc),
