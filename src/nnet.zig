@@ -46,9 +46,9 @@ pub fn typed(comptime val_t: type) type {
         pub fn TestAccessor(comptime test_case_t : type) type {
             return struct {
                 const Self = @This();
-                countFn: fn (s: *Self) usize,
-                grabFn: fn (s: *Self, idx: usize) *const test_case_t,
-                freeFn: ?fn (s: *Self, tc: *const test_case_t) void = null,
+                countFn: *const fn (s: *Self) usize,
+                grabFn: *const fn (s: *Self, idx: usize) *const test_case_t,
+                freeFn: ?*const fn (s: *Self, tc: *const test_case_t) void = null,
                 
                 pub fn testCount(self: *Self) usize {
                     return self.countFn(self);
@@ -95,7 +95,7 @@ pub fn typed(comptime val_t: type) type {
             var nidx: u32 = 0;
             var res = next_biases;
             while (nidx < nlen) : (nidx += 1) {
-                res += @splat(olen, neurons[nidx]) * weights[nidx];
+                res += @as(@Vector(olen, Float),  @splat(neurons[nidx])) * weights[nidx];
             }
             if (do_activate) {
                 assertFinite(res, "feedforward: res");
@@ -115,7 +115,7 @@ pub fn typed(comptime val_t: type) type {
             var rv: [len]Float = undefined;
             const coef = 1 / @as(Float, len);
             for (rv) |*v| {
-                v.* = @floatCast(Float, rnd.floatNorm(f64)) * coef;
+                v.* = rnd.floatNorm(Float) * coef;
             }
             return rv;
         }

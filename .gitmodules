@@ -5,3 +5,6 @@
 [submodule "deps/zig-csv"]
 	path = deps/zig-csv
 	url = https://github.com/beho/zig-csv.git
+[submodule "deps/protobuf"]
+	path = deps/protobuf
+	url = https://github.com/protocolbuffers/protobuf.git

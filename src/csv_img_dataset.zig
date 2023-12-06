@@ -15,7 +15,7 @@ const c = @cImport({
     @cInclude("stb_image.h");
 });
 
-pub fn forData(comptime Float: type, input_size: [2]usize, output_len: usize) type {
+pub fn forData(comptime Float: type, comptime input_size: [2]usize, comptime output_len: usize) type {
     const nnet = @import("nnet.zig").typed(Float);
     return struct {
         const Self = @This();
@@ -28,11 +28,10 @@ pub fn forData(comptime Float: type, input_size: [2]usize, output_len: usize) ty
 
         accessor: TestAccessor,
         arena: heap.ArenaAllocator,
-        // arrays skip arena to be able to actually
         test_cases: std.ArrayList(TestCase),
         test_names: std.ArrayList([max_name_len:0]u8),
 
-        pub fn init(alloc: *std.mem.Allocator) Self {
+        pub fn init(alloc: std.mem.Allocator) Self {
             return .{
                 .arena = heap.ArenaAllocator.init(alloc),
                 .test_cases = std.ArrayList(TestCase).init(alloc),
@@ -68,7 +67,7 @@ pub fn forData(comptime Float: type, input_size: [2]usize, output_len: usize) ty
             const buffer = try self.arena.child_allocator.alloc(u8, try file.getEndPos());
             defer self.arena.child_allocator.free(buffer);
 
-            const csv_tokenizer = &try csv.CsvTokenizer(std.fs.File.Reader).init(file.reader(), buffer, .{});
+            var csv_tokenizer = try csv.CsvTokenizer(std.fs.File.Reader).init(file.reader(), buffer, .{});
             const aprox_capacity = buffer.len / 10;
             try self.test_cases.ensureTotalCapacity(aprox_capacity);
             try self.test_names.ensureTotalCapacity(aprox_capacity);
@@ -94,19 +93,19 @@ pub fn forData(comptime Float: type, input_size: [2]usize, output_len: usize) ty
             while (try csv_tokenizer.next()) |first_token| : (i += 1) {
                 const tc = try self.test_cases.addOne();
                 const tn = try self.test_names.addOne();
-                std.mem.copy(u8, tn, first_token.field[0..@minimum(first_token.field.len, max_name_len)]);
+                std.mem.copy(u8, tn, first_token.field[0..@min(first_token.field.len, max_name_len)]);
                 tn[first_token.field.len] = 0;
                 if (cols > 1) {
                     if (try csv_tokenizer.next()) |tok| {
                         if (tok != .field) {
-                            log.alert("Expected field in csv, got end of line!", .{});
+                            log.err("Expected field in csv, got end of line!", .{});
                             return error.MissingValueCSV;
                         }
                         const digit: u8 = std.fmt.parseInt(u8, tok.field, 10) catch |e| {
-                            log.alert("CSV can't parse nubmer: `{s}` err: {}", .{ first_token.field, e });
+                            log.err("CSV can't parse nubmer: `{s}` err: {}", .{ first_token.field, e });
                             return error.ExpectedNumberCSV;
                         };
-                        var answer_vec = @splat(output_len, @as(Float, 0));
+                        var answer_vec : @Vector(output_len, Float) = @splat(0);
                         answer_vec[digit] = 1.0;
                         tc.*.answer = answer_vec;
                     } else return err.CsvMissingColumn;
@@ -130,7 +129,7 @@ pub fn forData(comptime Float: type, input_size: [2]usize, output_len: usize) ty
             defer self.arena.child_allocator.free(tmp_alloc_buff);
             var tmp_alloc = heap.FixedBufferAllocator.init(tmp_alloc_buff);
 
-            for (self.test_cases.items) |_, i| {
+            for (self.test_cases.items, 0..) |_, i| {
                 if (i % prcent_mod == 0) {
                     log.info("Image loading progress: {}%\r", .{i * 100 / self.test_cases.items.len});
                     log_ctx.log_ctx.out.flush() catch {};
@@ -146,8 +145,8 @@ pub fn forData(comptime Float: type, input_size: [2]usize, output_len: usize) ty
                     std.debug.panic("Error opening image '{s}': {}", .{ path, err });
                 };
                 defer file.close();
-                const buffer = try tmp_alloc.allocator.alloc(u8, try file.getEndPos());
-                defer tmp_alloc.allocator.free(buffer);
+                const buffer = try tmp_alloc.allocator().alloc(u8, try file.getEndPos());
+                defer tmp_alloc.allocator().free(buffer);
                 const read_len = try file.readAll(buffer);
                 if (read_len != buffer.len) std.debug.panic("Read different amount of bytes than in file!", .{});
 
@@ -159,7 +158,7 @@ pub fn forData(comptime Float: type, input_size: [2]usize, output_len: usize) ty
                 var h: i32 = 0;
                 var chanells_in_file: i32 = 1;
                 const desired_channels: i32 = 1;
-                const pixels = c.stbi_load_from_memory(buffer.ptr, @intCast(i32, buffer.len), &w, &h, &chanells_in_file, desired_channels);
+                const pixels = c.stbi_load_from_memory(buffer.ptr, @intCast(buffer.len), &w, &h, &chanells_in_file, desired_channels);
                 defer std.c.free(pixels);
                 if (pixels == null) {
                     std.debug.panic("Can't load image {s} filesize: {}", .{ path, buffer.len });
@@ -171,8 +170,8 @@ pub fn forData(comptime Float: type, input_size: [2]usize, output_len: usize) ty
                     std.debug.panic("Wrong image `{s}` size: expected {}x{} got {}x{}", .{ img_name, input_size[0], input_size[1], w, h });
                 }
 
-                for (pixels[0..(input_size[0] * input_size[1])]) |pixel, i_pix| {
-                    self.test_cases.items[i].input[i_pix] = @intToFloat(Float, pixel) * (1.0 / 255.0);
+                for (pixels[0..(input_size[0] * input_size[1])], 0..) |pixel, i_pix| {
+                    self.test_cases.items[i].input[i_pix] = @as(Float, @floatFromInt(pixel)) * (1.0 / 255.0);
                 }
             }
             log.info("Images loaded from sources in {}", .{ fmtDuration(timer.lap())});
@@ -199,7 +198,7 @@ pub fn forData(comptime Float: type, input_size: [2]usize, output_len: usize) ty
             }
             try w.writeAll(std.mem.sliceAsBytes(self.test_names.items));
             try w.writeAll(std.mem.sliceAsBytes(self.test_cases.items));
-            log.notice("Batch '{s}' saved for future speedup. Run preprocess when source data is changed!", .{path});
+            log.info("Batch '{s}' saved for future speedup. Run preprocess when source data is changed!", .{path});
         }
 
         // loads batched training data
@@ -229,7 +228,7 @@ pub fn forData(comptime Float: type, input_size: [2]usize, output_len: usize) ty
             try r.readNoEof(std.mem.sliceAsBytes(self.test_names.items));
             try self.test_cases.resize(records);
             try r.readNoEof(std.mem.sliceAsBytes(self.test_cases.items));
-            log.notice("Batch loaded {} records in {}", .{records, fmtDuration(timer.read())});
+            log.info("Batch loaded {} records in {}", .{records, fmtDuration(timer.read())});
         }
 
         //  TestAccessor funcs - private

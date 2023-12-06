@@ -17,7 +17,7 @@ const meta = std.meta;
 inline fn splat(comptime t: type, val: anytype) t {
     @setFloatMode(.Optimized);
     comptime if (@typeInfo(t) == .Vector) {
-        return @splat(@typeInfo(t).Vector.len, @as(@typeInfo(t).Vector.child, val));
+        return @as(@typeInfo(t), @splat(@as(@typeInfo(t).Vector.child, val)));
     } else {
         return val;
     };
@@ -111,13 +111,13 @@ pub const softmax = struct {
 pub const relu = struct {
     pub fn f(x: anytype) @TypeOf(x) {
         @setFloatMode(.Optimized);
-        return @maximum(splat(@TypeOf(x), 0), x);
+        return @max(splat(@TypeOf(x), 0), x);
     }
     // =1 when >0 or 0 otherwise
     pub fn deriv(x: anytype) @TypeOf(x) {
         @setFloatMode(.Optimized);
         const t = @TypeOf(x);
-        return @maximum(splat(t, 0), @minimum(splat(t, 1), @ceil(x)));
+        return @max(splat(t, 0), @min(splat(t, 1), @ceil(x)));
     }
 
     pub const derivZ = deriv; // special case for relu - not applicable to other fn
@@ -127,13 +127,13 @@ pub const relu_leaky = struct {
     const coef = 0.1;
     pub fn f(x: anytype) @TypeOf(x) {
         @setFloatMode(.Optimized);
-        return @maximum(x, x * splat(@TypeOf(x), coef));
+        return @max(x, x * splat(@TypeOf(x), coef));
     }
     // =1 when >0 or 0 otherwise
     pub fn deriv(x: anytype) @TypeOf(x) {
         @setFloatMode(.Optimized);
         const t = @TypeOf(x);
-        return @maximum(splat(t, coef), @minimum(splat(t, 1), @ceil(x)));
+        return @max(splat(t, coef), @min(splat(t, 1), @ceil(x)));
     }
 
     pub const derivZ = deriv; // special case for relu - not applicable to other fn
@@ -144,7 +144,7 @@ pub const relu6 = struct {
     pub fn f(x: anytype) @TypeOf(x) {
         @setFloatMode(.Optimized);
         const t = @TypeOf(x);
-        return @maximum(splat(t, 0), @minimum(x, splat(t, max)));
+        return @max(splat(t, 0), @min(x, splat(t, max)));
     }
 
     pub fn deriv(x: anytype) @TypeOf(x) {
@@ -152,8 +152,8 @@ pub const relu6 = struct {
         const t = @TypeOf(x);
         const div = 1.0 / @as(comptime_float, max);
         const nc = @ceil(splat(t, div) * x);
-        const cut = @minimum(splat(t, 1), nc) - @maximum(splat(t, 0), nc);
-        return @maximum(splat(t, 0), cut);
+        const cut = @min(splat(t, 1), nc) - @max(splat(t, 0), nc);
+        return @max(splat(t, 0), cut);
     }
 
     pub const derivZ = deriv; // special case for relu - not applicable to other fn
@@ -205,10 +205,10 @@ pub const logLoss = struct {
         @setFloatMode(.Optimized);
         const t = @TypeOf(answer);
         const ti = @typeInfo(t);
-        const p = @minimum(@maximum(predicted, splat(t, 0.00001)), splat(t, 0.99999));
+        const p = @min(@max(predicted, splat(t, 0.00001)), splat(t, 0.99999));
         const one = @log(p) * answer;
         const zero = @log(splat(t, 1) - p) * (splat(t, 1) - answer);
-        const avg = splat(t, 1.0 / @intToFloat(ti.Vector.child, ti.Vector.len));
+        const avg = splat(t, 1.0 / @as(ti.Vector.child, @floatFromInt(ti.Vector.len)));
         return (one + zero) * -avg;
     }
 
@@ -216,10 +216,10 @@ pub const logLoss = struct {
         @setFloatMode(.Optimized);
         const t = @TypeOf(answer);
         const ti = @typeInfo(t);
-        const p = @minimum(@maximum(predicted, splat(t, 0.00001)), splat(t, 0.99999));
+        const p = @min(@max(predicted, splat(t, 0.00001)), splat(t, 0.99999));
         const one = (splat(t, 1) / p) * answer;
         const zero = (splat(t, -1) / (splat(t, 1) - p)) * (splat(t, 1) - answer);
-        const avg = splat(t, 1.0 / @intToFloat(ti.Vector.child, ti.Vector.len));
+        const avg = splat(t, 1.0 / @as(ti.Vector.child, @floatFromInt(ti.Vector.len)));
         return (one + zero) * avg;
     }
 

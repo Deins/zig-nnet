@@ -41,8 +41,8 @@ pub fn log(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    if (@enumToInt(level) > @enumToInt(log_level)) return;
-    const use_err = @enumToInt(level) <= @enumToInt(std.log.Level.warn);
+    if (@intFromEnum(level) > @intFromEnum(log_level)) return;
+    const use_err = @intFromEnum(level) <= @intFromEnum(std.log.Level.warn);
     const flush = if (use_err) log_ctx.err.flush else log_ctx.out.flush;
     var out = if (use_err) log_ctx.err.writer() else log_ctx.out.writer();
     const outm = if (use_err) std.debug.getStderrMutex() else &log_ctx.out_mut;
@@ -65,7 +65,7 @@ pub fn log(
     outm.lock();
     const postfix = if (format.len > 1 and format[format.len - 1] < ' ') "" else "\n";
     out.print(color ++ prefix ++ format ++ ansi.style.reset ++ postfix, args) catch @panic("Can't write log!");
-    if (@enumToInt(level) <= @enumToInt(std.log.Level.warn)) flush() catch @panic("Can't flush log!");
+    if (@intFromEnum(level) <= @intFromEnum(std.log.Level.warn)) flush() catch @panic("Can't flush log!");
     outm.unlock();
 }
 
@@ -130,7 +130,6 @@ fn configure_console() void {
                 }
             }
         };
-        _ = win_con;
         win_con.configure();
     }
 }
