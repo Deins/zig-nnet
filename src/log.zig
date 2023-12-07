@@ -1,9 +1,10 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const ansi = @import("ansi_esc.zig");
 
 const Self = @This();
 pub const buff_size = 512;
-pub const log_level: std.log.Level = switch (std.builtin.mode) {
+pub const log_level: std.log.Level = switch (builtin.mode) {
     .Debug => .debug,
     .ReleaseSafe => .info,
     .ReleaseFast => .info,
@@ -40,9 +41,10 @@ pub fn log(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    if (@enumToInt(level) > @enumToInt(log_level)) return;
-    const use_err = @enumToInt(level) <= @enumToInt(std.log.Level.warn);
+    if (@intFromEnum(level) > @intFromEnum(log_level)) return;
+    const use_err = @intFromEnum(level) <= @intFromEnum(std.log.Level.warn);
     const flush = if (use_err) log_ctx.err.flush else log_ctx.out.flush;
+    _ = flush;
     var out = if (use_err) log_ctx.err.writer() else log_ctx.out.writer();
     const outm = if (use_err) std.debug.getStderrMutex() else &log_ctx.out_mut;
     if (scope == .raw) {
@@ -53,12 +55,12 @@ pub fn log(
     }
 
     const color = switch (level) {
-        .emerg => ansi.style.bold ++ ansi.style.underline ++ ansi.style.fg.col256(214) ++ ansi.style.bg.col256(52),
-        .alert => ansi.style.bold ++ ansi.style.underline ++ ansi.style.fg.red,
-        .crit => ansi.style.bold ++ ansi.style.fg.red,
+        // .emerg => ansi.style.bold ++ ansi.style.underline ++ ansi.style.fg.col256(214) ++ ansi.style.bg.col256(52),
+        // .alert => ansi.style.bold ++ ansi.style.underline ++ ansi.style.fg.red,
+        // .crit => ansi.style.bold ++ ansi.style.fg.red,
         .err => ansi.style.fg.red,
         .warn => "" ++ ansi.style.fg.col256(214),
-        .notice => ansi.style.bold,
+        // .notice => ansi.style.bold,
         .info => "",
         .debug => comptime ansi.style.fg.col256(245) ++ ansi.style.italic,
     };
@@ -68,12 +70,12 @@ pub fn log(
     const lock = outm.acquire();
     const postfix = if (format.len > 1 and format[format.len - 1] < ' ') "" else "\n";
     out.print(color ++ prefix ++ format ++ ansi.style.reset ++ postfix, args) catch @panic("Can't write log!");
-    if (@enumToInt(level) <= @enumToInt(std.log.Level.notice)) flush() catch @panic("Can't flush log!");
+    //if (@intFromEnum(level) <= @intFromEnum(std.log.Level.notice)) flush() catch @panic("Can't flush log!");
     lock.release();
 }
 
 fn configure_console() void {
-    if (std.builtin.os.tag == .windows) {
+    if (builtin.os.tag == .windows) {
         // configure windows console - use utf8 and ascii VT100 escape sequences
         const win_con = struct {
             const CP_UTF8: u32 = 65001;
@@ -133,18 +135,17 @@ fn configure_console() void {
                 }
             }
         };
-        _ = win_con;
         win_con.configure();
     }
 }
 
 pub fn testOut() void {
-    scoped(.testOut).emerg("emerg", .{});
-    scoped(.testOut).alert("alert", .{});
-    scoped(.testOut).crit("crit", .{});
+    // scoped(.testOut).emerg("emerg", .{});
+    // scoped(.testOut).alert("alert", .{});
+    // scoped(.testOut).crit("crit", .{});
     scoped(.testOut).err("err", .{});
     scoped(.testOut).warn("warn", .{});
-    scoped(.testOut).notice("notice", .{});
+    // scoped(.testOut).notice("notice", .{});
     scoped(.testOut).info("info", .{});
     scoped(.testOut).debug("debug", .{});
 }

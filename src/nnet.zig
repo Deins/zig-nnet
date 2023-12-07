@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = std.mem;
 const math = std.math;
 const meta = std.meta;
@@ -37,27 +38,27 @@ pub fn typed(comptime val_t: type) type {
             return struct {
                 pub const input_len = input_len_;
                 pub const output_len = output_len_;
-                input: @Vector(input_len, Float), 
-                answer: @Vector(output_len, Float) 
+                input: @Vector(input_len, Float),
+                answer: @Vector(output_len, Float),
             };
         }
 
-        pub fn TestAccessor(comptime test_case_t : type) type {
+        pub fn TestAccessor(comptime test_case_t: type) type {
             return struct {
                 const Self = @This();
-                countFn: fn (s: *Self) usize,
-                grabFn: fn (s: *Self, idx: usize) *const test_case_t,
-                freeFn: ?fn (s: *Self, tc: *const test_case_t) void = null,
-                
+                countFn: *const fn (s: *Self) usize,
+                grabFn: *const fn (s: *Self, idx: usize) *const test_case_t,
+                freeFn: ?*const fn (s: *Self, tc: *const test_case_t) void = null,
+
                 pub fn testCount(self: *Self) usize {
                     return self.countFn(self);
                 }
-                
+
                 // call freeTest to release data (for loaders that support it)
-                pub fn grabTest(self: *Self, idx: usize) * const test_case_t {
+                pub fn grabTest(self: *Self, idx: usize) *const test_case_t {
                     return self.grabFn(self, idx);
                 }
-            
+
                 pub fn freeTest(self: *Self, tc: *const test_case_t) void {
                     if (self.freeFn) |f| return f(self, tc);
                 }
@@ -94,7 +95,7 @@ pub fn typed(comptime val_t: type) type {
             var nidx: u32 = 0;
             var res = next_biases;
             while (nidx < nlen) : (nidx += 1) {
-                res += @splat(olen, neurons[nidx]) * weights[nidx];
+                res += @as(@Vector(olen, Float), @splat(neurons[nidx])) * weights[nidx];
             }
             if (do_activate) {
                 assertFinite(res, "feedforward: res");
@@ -104,22 +105,22 @@ pub fn typed(comptime val_t: type) type {
         }
 
         // d_oerr_o_na  = 𝝏err_total / 𝝏h  = how much Output error for {layer + 1} changes with respect to output (non activated)
-        //   
+        //
         // pub fn backpropHidden(d_oerr_o_na : anytype, ) void {
-            
+
         // }
 
-        pub fn randomArray(rnd: *std.rand.Random, comptime t: type, comptime len: usize) [len]t {
+        pub fn randomArray(rnd: std.rand.Random, comptime t: type, comptime len: usize) [len]t {
             @setFloatMode(std.builtin.FloatMode.Optimized);
             var rv: [len]Float = undefined;
             const coef = 1 / @as(Float, len);
-            for (rv) |*v| {
-                v.* = @floatCast(Float, rnd.floatNorm(f64)) * coef;
+            for (rv, 0..) |_, rv_index| {
+                rv[rv_index] = @as(Float, @floatCast(rnd.floatNorm(f64))) * coef;
             }
             return rv;
         }
 
-        pub fn randomize(rnd: *std.rand.Random, out: anytype) void {
+        pub fn randomize(rnd: std.rand.Random, out: anytype) void {
             comptime if (@typeInfo(@TypeOf(out)) != .Pointer)
                 @compileError("out must be pointer!");
             const tinfo = @typeInfo(@TypeOf(out.*));
@@ -129,7 +130,7 @@ pub fn typed(comptime val_t: type) type {
             } else if (tinfo == .Array) {
                 const cinfo = @typeInfo(tinfo.Array.child);
                 if (cinfo == .Array or cinfo == .Vector) {
-                    for (out.*) |*o| {
+                    for (out) |*o| {
                         randomize(rnd, o);
                     }
                 } else {
@@ -158,7 +159,7 @@ pub fn typed(comptime val_t: type) type {
         }
 
         pub fn assertFinite(v: anytype, msg: []const u8) void {
-            if (std.builtin.mode != .Debug and std.builtin.mode != .ReleaseSafe)
+            if (builtin.mode != .Debug and builtin.mode != .ReleaseSafe)
                 return;
             if (!isFinite(v)) {
                 std.debug.panic("Values aren't finite!\n{s}\n{}", .{ msg, v });
