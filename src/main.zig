@@ -346,7 +346,7 @@ pub fn doTest(alloc: mem.Allocator) !void {
                 in_dir.copyFile(td.getTestName(i), od, out_name, .{}) catch |err| mlog.err("Cant copy test output '{s}' err:{}", .{ out_name, err });
             }
 
-            const test_name = td.test_names.items[i];
+            const test_name = td.getTestName(i);
             try of.writer().print("{s},{}\n", .{ test_name, best });
             mlog.info("{s} , {} , {d:.1}%\t[{d:.2}]", .{ test_name, best, best_confidence * 100.0, net.out_activated * @as(@Vector(10, Float), @splat(100)) });
         }

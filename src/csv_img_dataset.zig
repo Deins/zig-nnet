@@ -94,6 +94,7 @@ pub fn forData(comptime Float: type, comptime input_size: [2]usize, comptime out
                 const tc = try self.test_cases.addOne();
                 const tn = try self.test_names.addOne();
                 std.mem.copy(u8, tn, first_token.field[0..@min(first_token.field.len, max_name_len)]);
+                tn[@min(first_token.field.len, max_name_len - 1)] = 0; // zero terminate
                 if (cols > 1) {
                     if (try csv_tokenizer.next()) |tok| {
                         if (tok != .field) {
