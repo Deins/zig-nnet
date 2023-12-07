@@ -4,6 +4,15 @@ This is zig experiment of writing basic feed forward neural network with back-pr
 
 **Note:** This is my first time writing or using neural network, therefore there might be some math errors etc. If you see any, please let me know. 🙂
 
+
+## Setup
+
+```sh
+$ git clone git@github.com:Deins/zig-nnet.git
+$ git submodule init
+$ git submodule update
+```
+
 ## Build
 
 ```sh
