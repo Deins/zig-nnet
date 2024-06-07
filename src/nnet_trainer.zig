@@ -5,13 +5,13 @@ const atomic = std.atomic;
 const maxInt = std.math.maxInt;
 const SpinFutex = struct {
     // spin-lock
-    pub fn wait(ptr: *const atomic.Atomic(u32), expect: u32, comptime timeout: ?u64) error{TimedOut}!void {
+    pub fn wait(ptr: *const atomic.Value(u32), expect: u32, comptime timeout: ?u64) error{TimedOut}!void {
         if (timeout) |_| @compileError("Not implemented!");
         while (ptr.load(.Unordered) == expect) {
             std.os.sched_yield() catch std.atomic.spinLoopHint();
         }
     }
-    pub fn wake(ptr: *const atomic.Atomic(u32), num_waiters: u32) void {
+    pub fn wake(ptr: *const atomic.Value(u32), num_waiters: u32) void {
         _ = ptr;
         _ = num_waiters;
     }
@@ -30,11 +30,11 @@ pub fn forNet(comptime NNet: anytype) type {
         const log = std.log.scoped(.NNetTrainer);
         // cordinates workers and work to be done
         const WorkQueue = struct {
-            const stop = maxInt(u32);
+            const stop = std.math.maxInt(u32);
             const start = stop - 1;
             inputs: []u32 = undefined,
-            next_input: atomic.Atomic(u32) = .{ .value = start },
-            results_done: atomic.Atomic(u32) = .{ .value = 0 },
+            next_input: atomic.Value(u32) = atomic.Value(u32).init(start),
+            results_done: atomic.Value(u32) = atomic.Value(u32).init(0),
             results_mutex: std.Thread.Mutex = .{},
             results: NNet.TrainResult = .{},
         };
@@ -54,16 +54,16 @@ pub fn forNet(comptime NNet: anytype) type {
         }
 
         export fn worker(wq: *WorkQueue, inp_nnet: *NNet, tacc: *TestAccessor) void {
-            @setFloatMode(.Optimized);
+            @setFloatMode(.optimized);
             var net = inp_nnet.*;
             var r: NNet.TrainResult = .{};
             Futex.wait(&wq.next_input, WorkQueue.start);
             var inputs: []u32 = wq.inputs;
             main_worker_loop: while (true) {
-                var input_idx = wq.next_input.fetchAdd(1, atomic.Ordering.AcqRel);
+                const input_idx = wq.next_input.fetchAdd(1, .acq_rel);
                 if (input_idx < inputs.len) {
                     //var timer = std.time.Timer.start() catch unreachable;
-                    var test_case = tacc.grabTest(inputs[input_idx]);
+                    const test_case = tacc.grabTest(inputs[input_idx]);
                     defer tacc.freeTest(test_case);
                     net.trainDeriv(test_case.*, &r);
                     //std.debug.print("trainDeriv: {}\n", .{std.fmt.fmtDuration(timer.lap())});
@@ -73,10 +73,10 @@ pub fn forNet(comptime NNet: anytype) type {
                         // merge whats left of results
                         wq.results_mutex.lock();
                         wq.results.merge(r);
-                        var total = wq.results.test_cases;
+                        const total = wq.results.test_cases;
                         wq.results_mutex.unlock();
-                        var total_i: u32 = @as(u32, @intFromFloat(total));
-                        wq.results_done.store(total_i, .Release);
+                        const total_i: u32 = @as(u32, @intFromFloat(total));
+                        wq.results_done.store(total_i, .release);
                         if (total_i == @as(u32, @intCast(inputs.len))) {
                             Futex.wake(&wq.results_done, maxInt(u32));
                             //log.info("wake: {}", .{total_i});
@@ -84,14 +84,14 @@ pub fn forNet(comptime NNet: anytype) type {
                         r = .{}; // fresh working copy
                     }
                     { // go to sleep
-                        var inp: u32 = wq.next_input.load(.Acquire);
+                        var inp: u32 = wq.next_input.load(.acquire);
                         while (inp >= inputs.len) {
                             if (inp == WorkQueue.stop) {
                                 break :main_worker_loop; // all done - exit
                             }
                             Futex.wait(&wq.next_input, inp);
-                            if (input_idx > wq.next_input.load(atomic.Ordering.Acquire)) break;
-                            inp = wq.next_input.load(.Acquire);
+                            if (input_idx > wq.next_input.load(.acquire)) break;
+                            inp = wq.next_input.load(.acquire);
                         }
                     }
                     // prep for work
@@ -102,7 +102,7 @@ pub fn forNet(comptime NNet: anytype) type {
         }
 
         pub fn trainEpoches(self: *Self, net: *NNet, test_accesor: *TestAccessor, epoches: u32) !void {
-            @setFloatMode(std.builtin.FloatMode.Optimized);
+            @setFloatMode(.optimized);
             const workers: usize = @min(self.workers, self.batch_size);
             if (workers < 1 or workers > 1024) std.debug.panic("Invalid worker count: {}", .{workers});
             std.debug.print("Epoch {} started (batchsize: {}, threads: {})\n", .{ self.epoch_idx, self.batch_size, self.workers });
@@ -118,7 +118,7 @@ pub fn forNet(comptime NNet: anytype) type {
             var wq = try self.alloc.create(WorkQueue);
             defer self.alloc.destroy(wq);
             wq.* = .{};
-            var threads = try self.alloc.alloc(std.Thread, workers);
+            const threads = try self.alloc.alloc(std.Thread, workers);
             defer self.alloc.free(threads);
 
             for (threads) |*t| t.* = try std.Thread.spawn(.{ .stack_size = 1671168 + @sizeOf(NNet) }, worker, .{ wq, net, test_accesor });
@@ -143,15 +143,15 @@ pub fn forNet(comptime NNet: anytype) type {
                         defer wq.results_mutex.unlock();
                         wq.results = .{};
                     } else @panic("Threading error: someone has grabbed results lock!");
-                    wq.results_done.store(0, .Release);
+                    wq.results_done.store(0, .release);
                     wq.inputs = batch;
-                    wq.next_input.store(@as(u32, @intCast(0)), .Release);
+                    wq.next_input.store(@as(u32, @intCast(0)), .release);
                     Futex.wake(&wq.next_input, maxInt(u32)); // wake workers
                     // wait for result
                     var expect_res: u32 = 0;
                     while (expect_res != batch.len) {
                         Futex.wait(&wq.results_done, expect_res);
-                        expect_res = wq.results_done.load(.Acquire);
+                        expect_res = wq.results_done.load(.acquire);
                         //log.info("Results: {}", .{expect_res});
                     }
                     // update nnet
@@ -163,7 +163,7 @@ pub fn forNet(comptime NNet: anytype) type {
                     if (!std.math.isFinite(wq.results.loss)) {
                         log.err("Batch {}# loss not finite! {}", .{ bb, wq.results.loss });
                         //wq.results.print();
-                        std.os.abort();
+                        @panic("loss not finite!");
                     }
                     loss += wq.results.loss;
                     correct += wq.results.correct;
@@ -178,7 +178,7 @@ pub fn forNet(comptime NNet: anytype) type {
                 log.info("Epoch {}# train time: {} avg loss: {d:.4} accuracy: {d:.2}%\n", .{ self.epoch_idx, std.fmt.fmtDuration(timer.lap()), loss / @as(Float, @floatFromInt(test_len)), accuracy * 100 });
             }
             // stop workers
-            wq.next_input.store(WorkQueue.stop, .SeqCst);
+            wq.next_input.store(WorkQueue.stop, .seq_cst);
             Futex.wake(&wq.next_input, maxInt(u32));
             for (threads) |t| t.join();
         }

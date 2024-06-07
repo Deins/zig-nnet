@@ -1,7 +1,6 @@
 const std = @import("std");
-const Builder = @import("std").build.Builder;
 
-pub fn build(b: *Builder) !void {
+pub fn build(b: *std.Build) !void {
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
     // means any target is allowed, and the default is native. Other options
@@ -19,7 +18,7 @@ pub fn build(b: *Builder) !void {
 
     const exe = b.addExecutable(.{
         .name = "nn",
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -32,12 +31,13 @@ pub fn build(b: *Builder) !void {
     // exe.addOptions("build_options", build_options);
 
     exe.addCSourceFile(.{
-        .file = std.build.LazyPath.relative("deps/stb.c"),
+        .file = b.path("deps/stb.c"),
         .flags = &[_][]const u8{},
     });
-    exe.addIncludePath(.{ .path = "deps/stb/" });
+
+    exe.addIncludePath(b.path("deps/stb/"));
     // Make the `csv` module available to be imported via `@import("csv")`
-    exe.addModule("csv", csv_dep.module("zig-csv"));
+    exe.root_module.addImport("csv", csv_dep.module("zig-csv"));
 
     b.installArtifact(exe);
 

@@ -38,3 +38,8 @@ Train new network and save output net:
 ```
 
 You can use `--load data/n.net` afterwards, to load existing net instead of generating new and train it further or with different settings.
+
+Test trained model on test data set, and save classified results inspection:
+```sh
+./zig-out/bin/nn.exe --load data/n.net --img-dir-out ./test-out test
+```

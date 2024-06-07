@@ -93,7 +93,7 @@ pub fn forData(comptime Float: type, comptime input_size: [2]usize, comptime out
             while (try csv_tokenizer.next()) |first_token| {
                 const tc = try self.test_cases.addOne();
                 const tn = try self.test_names.addOne();
-                std.mem.copy(u8, tn, first_token.field[0..@min(first_token.field.len, max_name_len)]);
+                @memcpy(tn, first_token.field[0..@min(first_token.field.len, max_name_len)]);
                 tn[@min(first_token.field.len, max_name_len - 1)] = 0; // zero terminate
                 if (cols > 1) {
                     if (try csv_tokenizer.next()) |tok| {
@@ -124,9 +124,9 @@ pub fn forData(comptime Float: type, comptime input_size: [2]usize, comptime out
             log.info("Loading images from sources...", .{});
             const prcent_mod = self.test_cases.items.len / 100;
             var path_buff: [512]u8 = undefined;
-            mem.copy(u8, path_buff[0..], path_prefix);
+            @memcpy(path_buff[0..], path_prefix);
 
-            var tmp_alloc_buff = try self.arena.child_allocator.alloc(u8, input_size[0] * input_size[1] * 4 + 1024);
+            const tmp_alloc_buff = try self.arena.child_allocator.alloc(u8, input_size[0] * input_size[1] * 4 + 1024);
             defer self.arena.child_allocator.free(tmp_alloc_buff);
             var tmp_fba = heap.FixedBufferAllocator.init(tmp_alloc_buff);
             var tmb_alloc = tmp_fba.allocator();
@@ -138,7 +138,7 @@ pub fn forData(comptime Float: type, comptime input_size: [2]usize, comptime out
                 }
 
                 const img_name = self.getTestName(i);
-                mem.copy(u8, path_buff[path_prefix.len..], img_name[0..]);
+                @memcpy(path_buff[path_prefix.len..], img_name[0..]);
                 const path = path_buff[0..(path_prefix.len + img_name.len)];
                 //debug.print("Loading image `{s}`\n", .{path});
 
@@ -190,12 +190,12 @@ pub fn forData(comptime Float: type, comptime input_size: [2]usize, comptime out
             defer f.close();
             var w = f.writer();
             try w.writeAll(file_header[0..]);
-            try w.writeIntLittle(u32, file_version);
-            try w.writeIntLittle(u32, input_size[0]);
-            try w.writeIntLittle(u32, input_size[1]);
+            try w.writeInt(u32, file_version, .little);
+            try w.writeInt(u32, input_size[0], .little);
+            try w.writeInt(u32, input_size[1], .little);
 
-            try w.writeIntLittle(u64, self.test_cases.items.len);
-            if (comptime builtin.cpu.arch.endian() != .Little) {
+            try w.writeInt(u64, self.test_cases.items.len, .little);
+            if (comptime builtin.cpu.arch.endian() != .little) {
                 @panic("TODO: Implement endian conversion!");
             }
             try w.writeAll(std.mem.sliceAsBytes(self.test_names.items));
@@ -215,15 +215,15 @@ pub fn forData(comptime Float: type, comptime input_size: [2]usize, comptime out
             if (!mem.eql(u8, &header, &file_header)) {
                 return err.HeaderMismatch;
             }
-            const v = try r.readIntLittle(u32);
-            const w = try r.readIntLittle(u32);
-            const h = try r.readIntLittle(u32);
+            const v = try r.readInt(u32, .little);
+            const w = try r.readInt(u32, .little);
+            const h = try r.readInt(u32, .little);
 
             if (v != file_version) return err.VersionMismatch;
             if (w != input_size[0] or h != input_size[1]) return err.ImageSizeMismatch;
 
-            var records: u64 = try r.readIntLittle(u64);
-            if (comptime builtin.cpu.arch.endian() != .Little) {
+            const records: u64 = try r.readInt(u64, .little);
+            if (comptime builtin.cpu.arch.endian() != .little) {
                 @compileError("TODO: Implement endian conversion!");
             }
             try self.test_names.resize(records);
@@ -235,12 +235,12 @@ pub fn forData(comptime Float: type, comptime input_size: [2]usize, comptime out
 
         //  TestAccessor funcs - private
         fn getTest(a: *TestAccessor, idx: usize) *TestCase {
-            const self = @fieldParentPtr(Self, "accessor", a);
+            const self: *Self = @fieldParentPtr("accessor", a);
             return &self.test_cases.items[idx];
         }
 
         fn getLen(a: *TestAccessor) usize {
-            const self = @fieldParentPtr(Self, "accessor", a);
+            const self: *Self = @fieldParentPtr("accessor", a);
             return self.test_cases.items.len;
         }
     };

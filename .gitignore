@@ -1,7 +1,5 @@
-data/
-data/digits/Images/
 *.batch
-zig-cache/
+.zig-cache/
 zig-out/
 /release/
 /debug/
@@ -14,3 +12,7 @@ zig-out/
 # exclude visual studio files, except json config 
 .vs
 !.vs/*.json
+
+test-out
+data/
+data/digits/Images/

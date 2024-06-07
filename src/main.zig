@@ -80,7 +80,7 @@ const NNet = struct {
         // merges training results for batch training
         //  derivatives are summed, call finalizeMerge() before applying to average them
         pub fn merge(self: *TrainResult, b: TrainResult) void {
-            @setFloatMode(.Optimized);
+            @setFloatMode(.optimized);
             if (b.test_cases == 0) return;
             if (self.test_cases == 0) {
                 self.* = b;
@@ -106,7 +106,7 @@ const NNet = struct {
         }
 
         pub fn average(self: *TrainResult) void {
-            @setFloatMode(.Optimized);
+            @setFloatMode(.optimized);
             std.debug.assert(self.test_cases >= 1);
             if (self.test_cases == 1) return;
             const n: Float = 1.0 / self.test_cases;
@@ -158,7 +158,7 @@ const NNet = struct {
     w2: [sizes[2]]@Vector(sizes[3], Float) = undefined,
 
     pub fn randomize(self: *Self, rnd: std.rand.Random) void {
-        @setFloatMode(std.builtin.FloatMode.Optimized);
+        @setFloatMode(std.builtin.FloatMode.optimized);
         nnet.randomize(rnd, &self.w0);
         nnet.randomize(rnd, &self.w1);
         nnet.randomize(rnd, &self.w2);
@@ -177,7 +177,7 @@ const NNet = struct {
     }
 
     pub fn feedForward(self: *Self, input: *const @Vector(sizes[0], Float)) void {
-        @setFloatMode(.Optimized);
+        @setFloatMode(.optimized);
         self.h1 = input.*;
         // nnet.forward(self.i, self.w0, Self.a1, self.b1, void, &self.h1);
         nnet.forward(self.h1, self.w1, Self.a2, self.b2, &self.h2);
@@ -187,14 +187,14 @@ const NNet = struct {
 
     // train to get derivatives
     pub fn trainDeriv(self: *Self, test_case: TestCase, train_result: *TrainResult) void {
-        @setFloatMode(.Optimized);
+        @setFloatMode(.optimized);
         //var timer = try std.time.Timer.start();
         debug.assert(TestCase.input_len == sizes[0]);
         self.feedForward(&test_case.input);
 
         const predicted_confidence: Float = @reduce(.Max, self.out_activated);
         //mlog.debug("output layer: {}", .{self.out_activated});
-        var answer_vector = test_case.answer;
+        const answer_vector = test_case.answer;
         const answer: u8 = ablk: {
             var i: u8 = 0;
             while (i < output_len) : (i += 1) {
@@ -277,7 +277,7 @@ const NNet = struct {
     }
 
     pub fn learn(self: *Self, train_results: TrainResult, learn_rate: Float) void {
-        @setFloatMode(std.builtin.FloatMode.Optimized);
+        @setFloatMode(std.builtin.FloatMode.optimized);
         self.bo += train_results.d_bo * @as(@TypeOf(self.bo), @splat(learn_rate));
         self.b2 += train_results.d_b2 * @as(@TypeOf(self.b2), @splat(learn_rate));
         for (self.w1, 0..) |_, nidx| {
@@ -298,6 +298,7 @@ pub fn doTest(alloc: mem.Allocator) !void {
     } else std.debug.panic("Can't test, network not specified! Use '--load' to specify network!", .{});
 
     var td = Dataset.init(alloc);
+    defer td.deinit();
     const img_dir_path = "./data/digits/Images/test/";
     try td.load("./data/digits/test.csv", img_dir_path, "data/test.batch", false);
     mlog.info("Test data loaded: {} entries", .{td.test_cases.items.len});
@@ -404,11 +405,12 @@ pub fn main() !void {
         std.log.Level.debug,
         std.log.Level.info,
     ).init(galloc.allocator());
-    var alloc = lalloc.allocator();
+    const alloc = lalloc.allocator();
 
     { // ARGS
-        const args = (try std.process.argsAlloc(galloc.allocator()))[1..]; // skip first arg as it points to current executable
-        defer std.process.argsFree(galloc.allocator(), args);
+        const args_ = (try std.process.argsAlloc(galloc.allocator()));
+        const args = args_[1..]; // skip first arg as it points to current executable
+        defer std.process.argsFree(galloc.allocator(), args_);
         const printHelp = struct {
             pub fn print() void {
                 var cwd_path_buff: [512]u8 = undefined;
@@ -423,6 +425,9 @@ pub fn main() !void {
                 debug.print("\t\t--batch-size {{int}}\n", .{});
                 debug.print("\t\t--epoches {{how many epoches to train}}\n", .{});
                 debug.print("\t\t--workers {{path - after training save net}}\n", .{});
+                debug.print("\ttest\t- tests loaded network against test data set:\n", .{});
+                debug.print("\t\t--load {{relative_path - instead of initialising random net, load existing}}\n", .{});
+                debug.print("\t\t--img-dir-out {{relative_path}} writes test result images to disk at this location\n", .{});
             }
         }.print;
 

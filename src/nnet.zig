@@ -70,7 +70,7 @@ pub fn typed(comptime val_t: type) type {
         // `out` can be void - activation will be done (if its not void) however un-activated output won't be stored and will be discarded
         // `out_activated` can be void - activation will be skipped
         pub fn forward(neurons: anytype, weights: anytype, next_activation: anytype, next_biases: anytype, out_activated: anytype) void {
-            @setFloatMode(.Optimized);
+            @setFloatMode(.optimized);
             // comptime checks
             const do_activate: bool = comptime ablk: {
                 if (@TypeOf(out_activated) != @TypeOf(void)) {
@@ -111,7 +111,7 @@ pub fn typed(comptime val_t: type) type {
         // }
 
         pub fn randomArray(rnd: std.rand.Random, comptime t: type, comptime len: usize) [len]t {
-            @setFloatMode(std.builtin.FloatMode.Optimized);
+            @setFloatMode(.optimized);
             var rv: [len]Float = undefined;
             const coef = 1 / @as(Float, len);
             for (rv, 0..) |_, rv_index| {
