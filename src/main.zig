@@ -18,7 +18,6 @@ const Dataset = @import("csv_img_dataset.zig").forData(
 );
 const TestCase = Dataset.TestCase;
 const nnet = @import("nnet.zig").typed(Float);
-const LogCtx = @import("log.zig");
 
 const Options = struct {
     workers: usize = 0,
@@ -31,18 +30,8 @@ const Options = struct {
 };
 var options: Options = .{};
 
-const rlog = LogCtx.scoped(.raw);
-const mlog = LogCtx.scoped(.main);
-
-// setup logging system
-pub const log_level = LogCtx.log_level;
-pub const log = LogCtx.log;
-
-const NNet2 = struct {
-    li: nnet.Layer(28 * 28, 64) = .{},
-    l1: nnet.Layer(64, 10) = .{},
-    lo: nnet.Layer(10, 0) = .{},
-};
+const rlog = std.log.scoped(.raw);
+const mlog = std.log.scoped(.main);
 
 const NNet = struct {
     const Self = @This();
@@ -389,10 +378,6 @@ pub fn train(alloc: mem.Allocator) !void {
 }
 
 pub fn main() !void {
-    LogCtx.init();
-    defer LogCtx.deinit() catch debug.print("Can't flush!", .{});
-    //LogCtx.testOut();
-
     options.workers = try std.Thread.getCpuCount();
     var galloc = std.heap.GeneralPurposeAllocator(.{}){};
     defer {
@@ -498,3 +483,16 @@ pub fn main() !void {
         }
     }
 }
+
+pub const std_options = .{
+    // Set the log level to info
+    .log_level = switch (builtin.mode) {
+        .Debug => .debug,
+        .ReleaseSafe => .info,
+        .ReleaseFast => .info,
+        .ReleaseSmall => .info,
+    },
+    // Define logFn to override the std implementation
+    //.logFn = LogCtx.log,
+    .log_scope_levels = &.{},
+};

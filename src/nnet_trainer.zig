@@ -20,6 +20,8 @@ const SpinFutex = struct {
 const Futex = std.Thread.Futex;
 const nnet = @import("nnet.zig");
 
+const log = std.log.scoped(.NNetTrainer);
+
 // multithreaded nnet trainer
 pub fn forNet(comptime NNet: anytype) type {
     return struct {
@@ -27,7 +29,6 @@ pub fn forNet(comptime NNet: anytype) type {
         pub const Float = NNet.ValType;
         pub const TestCase = nnet.typed(NNet.ValType).TestCase(NNet.input_len, NNet.output_len);
         pub const TestAccessor = nnet.typed(NNet.ValType).TestAccessor(TestCase);
-        const log = std.log.scoped(.NNetTrainer);
         // cordinates workers and work to be done
         const WorkQueue = struct {
             const stop = std.math.maxInt(u32);
@@ -105,7 +106,7 @@ pub fn forNet(comptime NNet: anytype) type {
             @setFloatMode(.optimized);
             const workers: usize = @min(self.workers, self.batch_size);
             if (workers < 1 or workers > 1024) std.debug.panic("Invalid worker count: {}", .{workers});
-            std.debug.print("Epoch {} started (batchsize: {}, threads: {})\n", .{ self.epoch_idx, self.batch_size, self.workers });
+            log.info("Epoch {} started (batchsize: {}, threads: {})\n", .{ self.epoch_idx, self.batch_size, self.workers });
             var timer = try std.time.Timer.start();
             const test_len: usize = test_accesor.testCount();
             // TODO: move as struct member to avoid allocating for each epoch

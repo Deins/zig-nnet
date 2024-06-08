@@ -6,7 +6,6 @@ const io = std.io;
 const fs = std.fs;
 const csv = @import("csv");
 //const fmapper = @import("fmapper.zig");
-const log_ctx = @import("log.zig");
 const fmtDuration = std.fmt.fmtDuration;
 const ansi = @import("ansi_esc.zig");
 const heap = std.heap;
@@ -134,7 +133,7 @@ pub fn forData(comptime Float: type, comptime input_size: [2]usize, comptime out
             for (self.test_cases.items, 0..) |_, i| {
                 if (i % prcent_mod == 0) {
                     log.info("Image loading progress: {}%\r", .{i * 100 / self.test_cases.items.len});
-                    log_ctx.log_ctx.out.flush() catch {};
+                    //log_ctx.log_ctx.out.flush() catch {};
                 }
 
                 const img_name = self.getTestName(i);
